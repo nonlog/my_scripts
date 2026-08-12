@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Recent Messages
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      0.3.3
+// @version      0.3.4
 // @description  Reduce long-chat rendering and client-state overhead in ChatGPT Web.
 // @match        https://chatgpt.com/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.3.3';
+  const VERSION = '0.3.4';
   const INITIAL_MESSAGES = 5;
   const LOAD_STEP = 5;
   const TOP_THRESHOLD_PX = 220;
@@ -601,7 +601,6 @@
     if (location.href === lastUrl) return;
 
     lastUrl = location.href;
-    window.__cgptRecentMessagesTrimStats = null;
 
     // ChatGPT may replace window.fetch during application boot. Restore the
     // lightweight Turbo wrapper before the new conversation request begins.
