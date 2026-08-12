@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Recent Messages
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      0.3.1
+// @version      0.3.2
 // @description  Reduce long-chat rendering and client-state overhead in ChatGPT Web.
 // @match        https://chatgpt.com/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.3.1';
+  const VERSION = '0.3.2';
   const INITIAL_MESSAGES = 5;
   const LOAD_STEP = 5;
   const TOP_THRESHOLD_PX = 220;
@@ -598,6 +598,11 @@
     if (location.href === lastUrl) return;
 
     lastUrl = location.href;
+
+    // ChatGPT may replace window.fetch during application boot. Restore the
+    // lightweight Turbo wrapper before the new conversation request begins.
+    installTurboFetch();
+
     showAll = false;
     visibleCount = INITIAL_MESSAGES;
     topLoadArmed = true;
@@ -608,12 +613,25 @@
     scheduleUpdate(0);
   }
 
+  function isConversationLink(anchor) {
+    if (!anchor?.href) return false;
+
+    try {
+      const url = new URL(anchor.href, location.href);
+      return url.origin === location.origin && /\/c\/[0-9a-f-]+$/i.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+
   function installRouteHooks() {
     for (const method of ['pushState', 'replaceState']) {
       const original = history[method];
       if (original.__cgptRecentMessagesWrapped) continue;
 
       const wrapped = function (...args) {
+        // Re-install before the application reacts to the route mutation.
+        installTurboFetch();
         const result = original.apply(this, args);
         queueMicrotask(handleRouteChange);
         return result;
@@ -623,7 +641,17 @@
       history[method] = wrapped;
     }
 
-    window.addEventListener('popstate', () => queueMicrotask(handleRouteChange));
+    // Capture conversation-link clicks before React's navigation handler so
+    // Turbo is restored even if ChatGPT replaced window.fetch after startup.
+    document.addEventListener('click', event => {
+      const anchor = event.target.closest?.('a[href]');
+      if (isConversationLink(anchor)) installTurboFetch();
+    }, true);
+
+    window.addEventListener('popstate', () => {
+      installTurboFetch();
+      queueMicrotask(handleRouteChange);
+    });
   }
 
   function initDom() {
