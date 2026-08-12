@@ -2,18 +2,18 @@
 
 Personal browser userscripts.
 
-## ChatGPT Recent Turns
+## ChatGPT Recent Messages
 
 `chatgpt-recent-turns.user.js` reduces rendering work in very long ChatGPT Web conversations.
 
 ### Behavior
 
-- Shows the latest **10 user turns** by default.
-- A turn means one user message plus the assistant/tool messages that follow it.
-- When you scroll near the top, it reveals **10 older turns** at a time.
-- `旧消息 +10` manually reveals 10 older turns.
-- `显示全部` temporarily reveals the entire conversation.
-- `重置` returns to the latest 10 turns.
+- Shows the latest **5 messages** by default.
+- Reveals **5 older messages** at a time when you scroll near the top.
+- Uses a compact **vertical icon toolbar** instead of text buttons.
+- Hover or focus an icon to see its tooltip.
+- UI language follows `navigator.language`: English browser language gets English tooltips; Chinese browser language gets Chinese tooltips.
+- The controls let you load older messages, show all / return to recent messages, and reset to the latest 5 messages.
 - Does **not** intercept ChatGPT network requests or modify conversation data.
 
 ### Installation
