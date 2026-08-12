@@ -1,18 +1,19 @@
 // ==UserScript==
 // @name         ChatGPT Recent Messages
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      0.3.0
+// @version      0.3.1
 // @description  Reduce long-chat rendering and client-state overhead in ChatGPT Web.
 // @match        https://chatgpt.com/*
 // @run-at       document-start
-// @sandbox      raw
+// @early-start
+// @inject-into  page
 // @grant        none
 // ==/UserScript==
 
 (() => {
   'use strict';
 
-  const VERSION = '0.3.0';
+  const VERSION = '0.3.1';
   const INITIAL_MESSAGES = 5;
   const LOAD_STEP = 5;
   const TOP_THRESHOLD_PX = 220;
