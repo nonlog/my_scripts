@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Recent Messages
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      0.4.0
+// @version      0.4.1
 // @description  Reduce long-chat rendering, tool-call layout, and client-state overhead in ChatGPT Web.
 // @match        https://chatgpt.com/*
 // @run-at       document-start
@@ -13,7 +13,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.4.0';
+  const VERSION = '0.4.1';
   const INITIAL_MESSAGES = 5;
   const LOAD_STEP = 5;
   const TOP_THRESHOLD_PX = 220;
@@ -34,6 +34,8 @@
   const TOOL_HIDDEN_ATTR = 'data-cgpt-tool-compacted';
   const TOOL_BUNDLE_CLASS = 'cgpt-tool-bundle';
   const TOOL_COMPACT_MIN_GROUP = 2;
+  const TOOL_COMPACT_DELAY_MS = 180;
+  const TOOL_UI_REFRESH_DELAY_MS = 500;
 
   const TURN_SELECTOR = '[data-testid^="conversation-turn-"]';
   const SCROLL_ROOT_SELECTOR = '[class~="group/scroll-root"]';
@@ -79,6 +81,7 @@
   let discoveryObserver = null;
   const toolObservers = new Map();
   const toolCompactTimers = new Map();
+  let toolUiRefreshTimer = null;
   let topLoadArmed = true;
   let lastUrl = location.href;
 
@@ -485,10 +488,18 @@
       && !(node.textContent || '').trim();
   }
 
+  function setToolHidden(tool, hidden) {
+    const currentlyHidden = tool.getAttribute(TOOL_HIDDEN_ATTR) === 'true';
+    if (currentlyHidden === hidden) return;
+
+    if (hidden) tool.setAttribute(TOOL_HIDDEN_ATTR, 'true');
+    else tool.removeAttribute(TOOL_HIDDEN_ATTR);
+  }
+
   function restoreToolContainer(container) {
     container.querySelectorAll(`:scope > .${TOOL_BUNDLE_CLASS}`).forEach(bundle => bundle.remove());
     container.querySelectorAll(`:scope > ${TOOL_SELECTOR}`).forEach(tool => {
-      tool.removeAttribute(TOOL_HIDDEN_ATTR);
+      setToolHidden(tool, false);
     });
   }
 
@@ -512,6 +523,68 @@
     };
   }
 
+  function scheduleToolUiRefresh(delay = TOOL_UI_REFRESH_DELAY_MS) {
+    clearTimeout(toolUiRefreshTimer);
+    toolUiRefreshTimer = setTimeout(() => {
+      toolUiRefreshTimer = null;
+      const messages = getMessages();
+      refreshToolCompactStats(messages);
+      updatePanel(messages.length);
+    }, delay);
+  }
+
+  function setToolBundleLabel(button, count, expanded) {
+    const label = t.toolBundle(count, expanded);
+    const labelNode = button.querySelector('.cgpt-tool-bundle-label');
+
+    if (labelNode?.textContent !== label) labelNode.textContent = label;
+    if (button.getAttribute('aria-label') !== label) button.setAttribute('aria-label', label);
+    if (button.dataset.expanded !== String(expanded)) {
+      button.dataset.expanded = String(expanded);
+    }
+    if (button.dataset.toolCount !== String(count)) {
+      button.dataset.toolCount = String(count);
+    }
+  }
+
+  function applyToolBundleState(button, tools, expanded) {
+    button.__cgptToolMembers = tools;
+    setToolBundleLabel(button, tools.length, expanded);
+
+    for (const tool of tools) {
+      setToolHidden(tool, !expanded);
+    }
+  }
+
+  function createToolBundle(container, anchor) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = TOOL_BUNDLE_CLASS;
+    button.dataset.expanded = 'false';
+    button.__cgptToolAnchor = anchor;
+    button.__cgptToolMembers = [];
+    button.innerHTML = `
+      ${icons.tools}
+      <span class="cgpt-tool-bundle-label"></span>
+      <svg class="cgpt-tool-bundle-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+    `;
+
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const expanded = button.dataset.expanded !== 'true';
+      const tools = (button.__cgptToolMembers || []).filter(tool => (
+        tool.isConnected && tool.parentElement === container
+      ));
+
+      applyToolBundleState(button, tools, expanded);
+      scheduleToolUiRefresh(0);
+    });
+
+    return button;
+  }
+
   function compactToolsInContainer(container) {
     if (!container?.isConnected) return;
 
@@ -519,64 +592,55 @@
     observer?.disconnect();
 
     try {
-      restoreToolContainer(container);
-      if (!toolCompactorEnabled()) return;
+      if (!toolCompactorEnabled()) {
+        restoreToolContainer(container);
+        return;
+      }
 
-      const expandedGroups = container.__cgptExpandedToolGroups
-        || (container.__cgptExpandedToolGroups = new Set());
+      const existingBundles = [...container.querySelectorAll(`:scope > .${TOOL_BUNDLE_CLASS}`)];
+      const bundleByAnchor = new Map();
+      const claimedBundles = new Set();
+
+      for (const bundle of existingBundles) {
+        const anchor = bundle.__cgptToolAnchor;
+        if (anchor?.isConnected && anchor.parentElement === container) {
+          bundleByAnchor.set(anchor, bundle);
+        }
+      }
+
+      // Scan direct children to identify logical runs, but only mutate tools whose
+      // compacted state actually changed. This avoids the v0.4.0 restore/rebuild
+      // cycle that performed O(n) DOM writes for every newly streamed tool call.
       const children = [...container.children];
       let group = [];
-      let groupIndex = 0;
 
       const flushGroup = () => {
         if (!group.length) return;
 
-        const currentGroupIndex = groupIndex;
-        groupIndex += 1;
-
         if (group.length < TOOL_COMPACT_MIN_GROUP) {
+          for (const tool of group) setToolHidden(tool, false);
           group = [];
           return;
         }
 
-        const expanded = expandedGroups.has(currentGroupIndex);
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = TOOL_BUNDLE_CLASS;
-        button.dataset.expanded = String(expanded);
-        button.dataset.groupIndex = String(currentGroupIndex);
+        const anchor = group[0];
+        let button = bundleByAnchor.get(anchor);
 
-        const label = t.toolBundle(group.length, expanded);
-        button.setAttribute('aria-label', label);
-        button.innerHTML = `
-          ${icons.tools}
-          <span>${label}</span>
-          <svg class="cgpt-tool-bundle-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
-        `;
-
-        button.addEventListener('click', event => {
-          event.preventDefault();
-          event.stopPropagation();
-
-          if (expandedGroups.has(currentGroupIndex)) expandedGroups.delete(currentGroupIndex);
-          else expandedGroups.add(currentGroupIndex);
-
-          compactToolsInContainer(container);
-          refreshToolCompactStats();
-          updatePanel(getMessages().length);
-        });
-
-        container.insertBefore(button, group[0]);
-
-        for (const tool of group) {
-          if (expanded) tool.removeAttribute(TOOL_HIDDEN_ATTR);
-          else tool.setAttribute(TOOL_HIDDEN_ATTR, 'true');
+        if (!button) {
+          button = createToolBundle(container, anchor);
+          container.insertBefore(button, anchor);
+        } else if (button.nextElementSibling !== anchor) {
+          container.insertBefore(button, anchor);
         }
 
+        claimedBundles.add(button);
+        applyToolBundleState(button, group, button.dataset.expanded === 'true');
         group = [];
       };
 
       for (const child of children) {
+        if (child.classList?.contains(TOOL_BUNDLE_CLASS)) continue;
+
         if (child.matches?.(TOOL_SELECTOR)) {
           group.push(child);
           continue;
@@ -587,6 +651,10 @@
       }
 
       flushGroup();
+
+      for (const bundle of existingBundles) {
+        if (!claimedBundles.has(bundle)) bundle.remove();
+      }
     } finally {
       if (observer && container.isConnected) {
         observer.observe(container, { childList: true });
@@ -594,7 +662,7 @@
     }
   }
 
-  function scheduleToolCompact(container, delay = 100) {
+  function scheduleToolCompact(container, delay = TOOL_COMPACT_DELAY_MS) {
     const previous = toolCompactTimers.get(container);
     if (previous) clearTimeout(previous);
 
@@ -608,8 +676,7 @@
       }
 
       compactToolsInContainer(container);
-      refreshToolCompactStats();
-      updatePanel(getMessages().length);
+      scheduleToolUiRefresh();
     }, delay);
 
     toolCompactTimers.set(container, timer);
@@ -621,6 +688,9 @@
 
     for (const timer of toolCompactTimers.values()) clearTimeout(timer);
     toolCompactTimers.clear();
+
+    clearTimeout(toolUiRefreshTimer);
+    toolUiRefreshTimer = null;
   }
 
   function getToolContainers(messages) {
@@ -655,12 +725,11 @@
     }
 
     for (const container of containers) {
-      if (!toolObservers.has(container)) {
-        const observer = new MutationObserver(() => scheduleToolCompact(container));
-        observer.observe(container, { childList: true });
-        toolObservers.set(container, observer);
-      }
+      if (toolObservers.has(container)) continue;
 
+      const observer = new MutationObserver(() => scheduleToolCompact(container));
+      observer.observe(container, { childList: true });
+      toolObservers.set(container, observer);
       compactToolsInContainer(container);
     }
 
