@@ -29,7 +29,11 @@ When ChatGPT renders a consecutive run of collapsed `Called tool` rows, the scri
 - Watches each active agent-turn container so newly streamed tool calls are automatically folded into the bundle.
 - Can be toggled live with the tools/sliders icon; no reload is required.
 
-In live validation, a growing run of **22 `Called tool` rows** was reduced to **1 bundle / 0 visible tool rows**. Disabling Tool Compactor restored all 22 original rows immediately.
+v0.4.1 changes streaming compaction from a restore/rebuild cycle to an incremental update. Existing hidden tool rows and bundle buttons are reused; only newly added or genuinely changed nodes receive DOM writes. Tool mutations are also batched for about 180 ms, while toolbar statistics are refreshed separately at a lower frequency.
+
+In a headless-Chrome stress test that appended **300 tool rows one at a time**, the v0.4.0-style restore/rebuild loop produced about **90,896 relevant DOM mutations**. The incremental algorithm produced **301**, a **99.67% reduction**. In the same synthetic test, compaction execution time decreased from about **116 ms to 34 ms** before accounting for the additional layout/paint cost that real ChatGPT pages incur.
+
+In live validation of v0.4.0, a growing run of **22 `Called tool` rows** was reduced to **1 bundle / 0 visible tool rows**. Disabling Tool Compactor restored all 22 original rows immediately.
 
 ### Adaptive Turbo mode
 
