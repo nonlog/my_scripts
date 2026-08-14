@@ -6,12 +6,16 @@ Personal browser userscripts.
 
 `chatgpt-recent-turns.user.js` reduces rendering work and client-side conversation-state overhead in very long ChatGPT Web conversations, especially Agent chats with many tool calls.
 
-### v0.6.0 behavior
+### v0.7.0 behavior
 
 - Shows the latest **5 currently materialized messages** by default.
 - Reveals **5 older messages** at a time when you scroll near the top.
 - Uses a compact vertical icon toolbar with browser-language tooltips.
-- After about **4 seconds of inactivity**, the toolbar collapses to one small round icon. Click it to expand the full toolbar again.
+- After about **4 seconds of inactivity**, the toolbar collapses to one small round icon.
+- The expanded toolbar now also has a **manual collapse button**.
+- The toolbar can be **dragged** using the grip at its top; its position is persisted in `localStorage`.
+- Dropping the toolbar within about **48 px** of the left or right screen edge docks it to that edge.
+- A docked toolbar partially slides off-screen after about **700 ms** of inactivity and slides fully back into view when the pointer returns.
 - Keeps Tool Compactor enabled by default: consecutive `Called tool` rows are hidden and represented by one lightweight bundle button.
 - Uses the incremental Tool Compactor introduced in v0.4.1, avoiding the previous restore/rebuild cycle during tool streaming.
 - Keeps Adaptive Turbo enabled by default for unusually heavy conversations.
@@ -20,11 +24,13 @@ Personal browser userscripts.
 
 ### Controls
 
+- Drag grip: move the toolbar.
 - Up arrow: load 5 older materialized messages.
 - Lines icon: show all currently materialized messages / return to recent messages.
 - Reset icon: return to the latest 5 messages.
 - Lightning icon: toggle Turbo mode and reload.
 - Tools/sliders icon: toggle Tool Compactor immediately.
+- Collapse icon: manually collapse the expanded toolbar.
 - Collapsed toolbar icon: reopen the full toolbar.
 
 ## Install with ScriptCat
@@ -41,7 +47,7 @@ With ScriptCat installed, open that URL in the browser and confirm the install/u
 
 ### Remote updates
 
-v0.6.0 includes:
+The userscript includes:
 
 ```text
 @updateURL   https://raw.githubusercontent.com/nonlog/my_scripts/master/chatgpt-recent-turns.meta.js
@@ -52,9 +58,10 @@ v0.6.0 includes:
 
 For future releases:
 
-1. Increase `@version` in **both** `chatgpt-recent-turns.user.js` and `chatgpt-recent-turns.meta.js` (for example `0.6.0` → `0.6.1`).
-2. Commit both files to `master`.
-3. ScriptCat can then detect the newer version through `@updateURL` and download it through `@downloadURL` according to the user's update-check settings. A manual update check can also be triggered from ScriptCat.
+1. Increase `@version` in **both** `chatgpt-recent-turns.user.js` and `chatgpt-recent-turns.meta.js`.
+2. Commit the complete `.user.js` first.
+3. Update README if needed.
+4. Commit `.meta.js` **last**, so remote clients only see the new version after the full userscript is already available.
 
 Do not change `@namespace` unless you intentionally want ScriptCat to treat it as a different userscript identity.
 
