@@ -65,7 +65,7 @@ class AutoTitleTests(unittest.TestCase):
             ):
                 auto.spawn_background_worker(
                     {
-                        "hook_event_name": "Stop",
+                        "hook_event_name": "UserPromptSubmit",
                         "session_id": "s-launch",
                         "model": "gpt-test",
                         "last_assistant_message": "must not be forwarded",
@@ -77,7 +77,7 @@ class AutoTitleTests(unittest.TestCase):
                 worker_payload = json.loads(kwargs["env"][auto.WORKER_PAYLOAD_ENV])
                 self.assertEqual(
                     worker_payload,
-                    {"hook_event_name": "Stop", "session_id": "s-launch", "model": "gpt-test"},
+                    {"hook_event_name": "UserPromptSubmit", "session_id": "s-launch", "model": "gpt-test"},
                 )
                 self.assertNotIn("last_assistant_message", worker_payload)
 
@@ -89,7 +89,7 @@ class AutoTitleTests(unittest.TestCase):
                 mock.patch.object(auto, "AppServerClient", FakeClient),
                 mock.patch.object(auto, "find_codex", return_value="codex"),
             ):
-                rc = auto.handle_hook({"hook_event_name": "Stop", "session_id": "s1"})
+                rc = auto.handle_hook({"hook_event_name": "UserPromptSubmit", "session_id": "s1"})
                 self.assertEqual(rc, 0)
                 self.assertEqual(FakeClient.names, [])
                 marker = json.loads((Path(state) / "processed" / "s1.json").read_text(encoding="utf-8"))
@@ -103,7 +103,7 @@ class AutoTitleTests(unittest.TestCase):
                 mock.patch.object(auto, "AppServerClient", FakeClient),
                 mock.patch.object(auto, "find_codex", return_value="codex"),
             ):
-                auto.handle_hook({"hook_event_name": "Stop", "session_id": "s2"})
+                auto.handle_hook({"hook_event_name": "UserPromptSubmit", "session_id": "s2"})
                 self.assertEqual(FakeClient.names, [])
 
     def test_manual_rename_race_wins(self):
@@ -118,7 +118,7 @@ class AutoTitleTests(unittest.TestCase):
                 mock.patch.object(auto, "find_codex", return_value="codex"),
                 mock.patch.object(auto, "generate_title", return_value="Fix login bug"),
             ):
-                auto.handle_hook({"hook_event_name": "Stop", "session_id": "s3", "model": "gpt-test"})
+                auto.handle_hook({"hook_event_name": "UserPromptSubmit", "session_id": "s3", "model": "gpt-test"})
                 self.assertEqual(FakeClient.names, [])
                 marker = json.loads((Path(state) / "processed" / "s3.json").read_text(encoding="utf-8"))
                 self.assertEqual(marker["reason"], "named_during_generation")
@@ -135,9 +135,9 @@ class AutoTitleTests(unittest.TestCase):
                 mock.patch.object(auto, "find_codex", return_value="codex"),
                 mock.patch.object(auto, "generate_title", return_value="Fix login bug"),
             ):
-                auto.handle_hook({"hook_event_name": "Stop", "session_id": "s4", "model": "gpt-test"})
+                auto.handle_hook({"hook_event_name": "UserPromptSubmit", "session_id": "s4", "model": "gpt-test"})
                 self.assertEqual(FakeClient.names, [("s4", "Fix login bug")])
-                auto.handle_hook({"hook_event_name": "Stop", "session_id": "s4", "model": "gpt-test"})
+                auto.handle_hook({"hook_event_name": "UserPromptSubmit", "session_id": "s4", "model": "gpt-test"})
                 self.assertEqual(FakeClient.names, [("s4", "Fix login bug")])
 
 
@@ -165,23 +165,32 @@ class InstallerTests(unittest.TestCase):
             installed.write_text(package_script.read_text(encoding="utf-8"), encoding="utf-8")
 
             config = installer.load_hooks(hooks_path)
-            groups, removed = installer.remove_existing(config["hooks"].get("Stop", []))
-            self.assertEqual(removed, 0)
-            groups.append(installer.build_handler(Path(__import__("sys").executable), installed))
-            config["hooks"]["Stop"] = groups
+            hooks = config["hooks"]
+            for event_name in (installer.LEGACY_EVENT_NAME, installer.EVENT_NAME):
+                groups, removed = installer.remove_existing(hooks.get(event_name, []))
+                self.assertEqual(removed, 0)
+                if groups:
+                    hooks[event_name] = groups
+                else:
+                    hooks.pop(event_name, None)
+            hooks[installer.EVENT_NAME] = [
+                installer.build_handler(Path(__import__("sys").executable), installed)
+            ]
             installer.atomic_write_json(hooks_path, config)
 
             merged = json.loads(hooks_path.read_text(encoding="utf-8"))
             self.assertEqual(merged["description"], "keep me")
             self.assertEqual(len(merged["hooks"]["SessionStart"]), 1)
-            self.assertEqual(len(merged["hooks"]["Stop"]), 2)
-            auto_handler = merged["hooks"]["Stop"][1]["hooks"][0]
+            self.assertEqual(len(merged["hooks"]["Stop"]), 1)
+            self.assertEqual(len(merged["hooks"]["UserPromptSubmit"]), 1)
+            auto_handler = merged["hooks"]["UserPromptSubmit"][0]["hooks"][0]
             self.assertNotIn("async", auto_handler)
             self.assertEqual(auto_handler["timeout"], 10)
 
-            cleaned, removed = installer.remove_existing(merged["hooks"]["Stop"])
+            cleaned, removed = installer.remove_existing(merged["hooks"]["UserPromptSubmit"])
             self.assertEqual(removed, 1)
-            self.assertEqual(cleaned, [{"hooks": [{"type": "command", "command": "other-stop"}]}])
+            self.assertEqual(cleaned, [])
+            self.assertEqual(merged["hooks"]["Stop"], [{"hooks": [{"type": "command", "command": "other-stop"}]}])
 
 
 if __name__ == "__main__":
