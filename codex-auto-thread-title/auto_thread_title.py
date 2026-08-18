@@ -2,8 +2,8 @@
 """Automatically name newly created Codex CLI threads after their first completed turn.
 
 This hook intentionally uses Codex app-server APIs instead of editing SQLite or rollout files.
-It is designed to be called by a Codex Stop hook and to fail open: errors are logged locally,
-but never block or prolong the user's Codex turn.
+The synchronous Codex hook only detaches a background worker and returns; the worker performs
+the real work and fails open so title errors never block the user's Codex turn.
 """
 
 from __future__ import annotations
@@ -30,6 +30,8 @@ DEFAULT_TIMEOUT_SECONDS = 90
 DEFAULT_MAX_TITLE_CHARS = 64
 DEFAULT_LOCK_STALE_SECONDS = 15 * 60
 CHILD_GUARD_ENV = "CODEX_AUTO_TITLE_CHILD"
+WORKER_FLAG = "--worker"
+WORKER_PAYLOAD_ENV = "CODEX_AUTO_TITLE_WORKER_PAYLOAD"
 
 
 def _utc_now() -> str:
@@ -137,6 +139,50 @@ def creation_flags() -> int:
     if os.name != "nt":
         return 0
     return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def background_creation_flags() -> int:
+    if os.name != "nt":
+        return 0
+    return (
+        getattr(subprocess, "DETACHED_PROCESS", 0)
+        | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    )
+
+
+def spawn_background_worker(payload: dict[str, Any]) -> None:
+    """Launch the real title work out-of-process and return immediately."""
+    session_id = payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        return
+
+    reduced_payload: dict[str, Any] = {
+        "hook_event_name": "Stop",
+        "session_id": session_id,
+    }
+    model = payload.get("model")
+    if isinstance(model, str) and model:
+        reduced_payload["model"] = model
+
+    env = os.environ.copy()
+    env[WORKER_PAYLOAD_ENV] = json.dumps(reduced_payload, ensure_ascii=False, separators=(",", ":"))
+    kwargs: dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "env": env,
+        "close_fds": True,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = background_creation_flags()
+    else:
+        kwargs["start_new_session"] = True
+
+    subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), WORKER_FLAG],
+        **kwargs,
+    )
+    log_event("worker_spawned", session_id=session_id)
 
 
 class AppServerClient:
@@ -463,11 +509,26 @@ def handle_hook(payload: dict[str, Any]) -> int:
 
 def main() -> int:
     try:
+        if WORKER_FLAG in sys.argv[1:]:
+            raw_payload = os.environ.pop(WORKER_PAYLOAD_ENV, "")
+            payload = json.loads(raw_payload) if raw_payload else {}
+            if not isinstance(payload, dict):
+                return 0
+            return handle_hook(payload)
+
+        # The title-generation child inherits this guard. Its own Stop hook must
+        # return immediately instead of spawning another title worker.
+        if os.environ.get(CHILD_GUARD_ENV) == "1":
+            return 0
+
         raw = sys.stdin.read()
         payload = json.loads(raw) if raw.strip() else {}
         if not isinstance(payload, dict):
             return 0
-        return handle_hook(payload)
+        if payload.get("hook_event_name") != "Stop":
+            return 0
+        spawn_background_worker(payload)
+        return 0
     except Exception as exc:
         log_event("fatal", error=type(exc).__name__)
         return 0
