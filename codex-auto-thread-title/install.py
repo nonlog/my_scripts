@@ -15,11 +15,17 @@ from pathlib import Path
 from typing import Any
 
 HOOK_SCRIPT_NAME = "auto_thread_title.py"
-STATUS_MESSAGE = "Auto-naming CLI session..."
+STATUS_MESSAGE = "Starting CLI auto-title worker..."
 
 
 def default_codex_home() -> Path:
-    return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).expanduser()
+    configured = os.environ.get("CODEX_HOME")
+    if configured:
+        return Path(configured).expanduser()
+    user_profile = os.environ.get("USERPROFILE")
+    if user_profile:
+        return Path(user_profile) / ".codex"
+    return Path.home() / ".codex"
 
 
 def load_hooks(path: Path) -> dict[str, Any]:
@@ -96,8 +102,7 @@ def build_handler(python_exe: Path, installed_script: Path) -> dict[str, Any]:
                 "type": "command",
                 "command": posix_command,
                 "commandWindows": windows_command,
-                "async": True,
-                "timeout": 120,
+                "timeout": 10,
                 "statusMessage": STATUS_MESSAGE,
             }
         ]
@@ -171,8 +176,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--codex-home",
         type=Path,
-        default=default_codex_home(),
-        help="Codex home directory (default: CODEX_HOME or ~/.codex)",
+        default=None,
+        help="Codex home directory (default: CODEX_HOME, USERPROFILE/.codex, or ~/.codex)",
     )
     parser.add_argument(
         "--python",
@@ -187,7 +192,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    codex_home = args.codex_home.expanduser().resolve()
+    codex_home = (args.codex_home or default_codex_home()).expanduser().resolve()
     try:
         if args.uninstall:
             return uninstall(codex_home)
