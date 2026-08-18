@@ -57,6 +57,30 @@ class AutoTitleTests(unittest.TestCase):
         self.assertNotIn("https://", title)
         self.assertTrue(title)
 
+    def test_launcher_spawns_detached_worker_with_reduced_payload(self):
+        with tempfile.TemporaryDirectory() as state:
+            with (
+                mock.patch.dict("os.environ", {"CODEX_AUTO_TITLE_STATE_DIR": state}, clear=False),
+                mock.patch.object(auto.subprocess, "Popen") as popen,
+            ):
+                auto.spawn_background_worker(
+                    {
+                        "hook_event_name": "Stop",
+                        "session_id": "s-launch",
+                        "model": "gpt-test",
+                        "last_assistant_message": "must not be forwarded",
+                    }
+                )
+                self.assertEqual(popen.call_count, 1)
+                args, kwargs = popen.call_args
+                self.assertIn(auto.WORKER_FLAG, args[0])
+                worker_payload = json.loads(kwargs["env"][auto.WORKER_PAYLOAD_ENV])
+                self.assertEqual(
+                    worker_payload,
+                    {"hook_event_name": "Stop", "session_id": "s-launch", "model": "gpt-test"},
+                )
+                self.assertNotIn("last_assistant_message", worker_payload)
+
     def test_non_cli_thread_is_never_named(self):
         with tempfile.TemporaryDirectory() as state:
             FakeClient.threads = [{"source": "appServer", "name": None, "preview": "hello"}]
@@ -151,6 +175,9 @@ class InstallerTests(unittest.TestCase):
             self.assertEqual(merged["description"], "keep me")
             self.assertEqual(len(merged["hooks"]["SessionStart"]), 1)
             self.assertEqual(len(merged["hooks"]["Stop"]), 2)
+            auto_handler = merged["hooks"]["Stop"][1]["hooks"][0]
+            self.assertNotIn("async", auto_handler)
+            self.assertEqual(auto_handler["timeout"], 10)
 
             cleaned, removed = installer.remove_existing(merged["hooks"]["Stop"])
             self.assertEqual(removed, 1)
