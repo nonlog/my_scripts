@@ -56,7 +56,12 @@ def state_dir() -> Path:
     plugin_data = os.environ.get("PLUGIN_DATA") or os.environ.get("CLAUDE_PLUGIN_DATA")
     if plugin_data:
         return Path(plugin_data)
-    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    configured = os.environ.get("CODEX_HOME")
+    if configured:
+        codex_home = Path(configured).expanduser()
+    else:
+        user_profile = os.environ.get("USERPROFILE")
+        codex_home = Path(user_profile) / ".codex" if user_profile else Path.home() / ".codex"
     return codex_home / "auto-thread-title"
 
 
