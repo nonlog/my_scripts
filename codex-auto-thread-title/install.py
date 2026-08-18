@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install or uninstall the Codex auto-thread-title Stop hook without clobbering other hooks."""
+"""Install or uninstall the Codex auto-thread-title UserPromptSubmit hook without clobbering other hooks."""
 
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 HOOK_SCRIPT_NAME = "auto_thread_title.py"
+EVENT_NAME = "UserPromptSubmit"
+LEGACY_EVENT_NAME = "Stop"
 STATUS_MESSAGE = "Starting CLI auto-title worker..."
 
 
@@ -73,7 +75,7 @@ def is_our_handler(handler: Any) -> bool:
 
 def remove_existing(groups: Any) -> tuple[list[Any], int]:
     if not isinstance(groups, list):
-        raise RuntimeError("hooks.Stop must be an array")
+        raise RuntimeError("hook groups must be an array")
     cleaned: list[Any] = []
     removed = 0
     for group in groups:
@@ -125,9 +127,15 @@ def install(codex_home: Path, python_exe: Path) -> int:
     hooks_path = codex_home / "hooks.json"
     config = load_hooks(hooks_path)
     hooks = config["hooks"]
-    stop_groups, _ = remove_existing(hooks.get("Stop", []))
-    stop_groups.append(build_handler(python_exe.resolve(), installed_script.resolve()))
-    hooks["Stop"] = stop_groups
+    for event_name in (LEGACY_EVENT_NAME, EVENT_NAME):
+        groups, _ = remove_existing(hooks.get(event_name, []))
+        if groups:
+            hooks[event_name] = groups
+        else:
+            hooks.pop(event_name, None)
+    prompt_groups = list(hooks.get(EVENT_NAME, []))
+    prompt_groups.append(build_handler(python_exe.resolve(), installed_script.resolve()))
+    hooks[EVENT_NAME] = prompt_groups
 
     backup = backup_file(hooks_path)
     atomic_write_json(hooks_path, config)
@@ -145,11 +153,14 @@ def uninstall(codex_home: Path) -> int:
     if hooks_path.exists():
         config = load_hooks(hooks_path)
         hooks = config["hooks"]
-        stop_groups, removed = remove_existing(hooks.get("Stop", []))
-        if stop_groups:
-            hooks["Stop"] = stop_groups
-        else:
-            hooks.pop("Stop", None)
+        removed = 0
+        for event_name in (LEGACY_EVENT_NAME, EVENT_NAME):
+            groups, event_removed = remove_existing(hooks.get(event_name, []))
+            removed += event_removed
+            if groups:
+                hooks[event_name] = groups
+            else:
+                hooks.pop(event_name, None)
         backup = backup_file(hooks_path)
         atomic_write_json(hooks_path, config)
         print(f"Removed {removed} auto-thread-title hook handler(s) from {hooks_path}")
