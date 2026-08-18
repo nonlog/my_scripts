@@ -6,7 +6,7 @@ It deliberately does **not** edit `state_*.sqlite`, rollout JSONL files, or othe
 
 ## Behavior
 
-On each `Stop` event the hook exits quickly unless the thread still needs a title. For an eligible thread it:
+On each `Stop` event the hook launcher exits quickly after starting a detached worker. The worker then checks whether the thread still needs a title. For an eligible thread it:
 
 1. Reads the thread through `thread/read`.
 2. Requires `thread.source == "cli"`, so Desktop/app-server/exec threads are ignored.
@@ -16,7 +16,7 @@ On each `Stop` event the hook exits quickly unless the thread still needs a titl
 6. Sets the title through `thread/name/set`.
 7. Records a small processed marker so later turns do not rename the thread again.
 
-The hook is configured as asynchronous and fails open. If title generation fails, it uses a conservative local fallback based on the first request. Operational errors never block the Codex turn and are retried on a later `Stop` event.
+The Codex hook itself is synchronous but intentionally tiny: it only starts a detached background worker and returns immediately. This works with Codex builds that currently skip `async` hooks. The background worker does the app-server lookup and title generation. If generation fails, it uses a conservative local fallback based on the first request. Operational errors never block the Codex turn and are retried on a later `Stop` event.
 
 ## Safety properties
 
@@ -25,14 +25,15 @@ The hook is configured as asynchronous and fails open. If title generation fails
 - Only threads whose app-server source is `cli` are auto-named.
 - Existing names are never overwritten.
 - A second name check closes the manual-rename race.
-- A per-session lock prevents duplicate concurrent `Stop` runs.
-- The title-generation child sets `CODEX_AUTO_TITLE_CHILD=1` so the hook cannot recurse into itself.
+- A per-session lock prevents duplicate concurrent `Stop` workers.
+- The title-generation child sets `CODEX_AUTO_TITLE_CHILD=1` so its own `Stop` hook exits immediately and cannot recurse.
 - Logs contain session IDs and status/error classes, but not prompt text or generated titles.
 
 ## Requirements
 
 - A recent Codex CLI with Hooks support.
 - `codex app-server` support for `thread/read` and `thread/name/set`.
+- No Codex async-hook support is required; the hook launcher detaches its own worker.
 - Python 3.10+.
 - The same Codex authentication/model-provider configuration that your normal CLI uses.
 
@@ -47,7 +48,7 @@ python .\install.py
 The installer:
 
 - copies `auto_thread_title.py` to `~/.codex/hooks/auto-thread-title/`;
-- merges one asynchronous `Stop` handler into `~/.codex/hooks.json`;
+- merges one short synchronous `Stop` launcher into `~/.codex/hooks.json`; the launcher immediately detaches the real worker;
 - makes a timestamped backup before changing an existing `hooks.json`;
 - preserves all unrelated hooks.
 
@@ -90,9 +91,8 @@ Conceptually the installer adds this group to `hooks.Stop` (the real command con
             "type": "command",
             "command": "python /path/to/auto_thread_title.py",
             "commandWindows": "python.exe C:\\path\\to\\auto_thread_title.py",
-            "async": true,
-            "timeout": 120,
-            "statusMessage": "Auto-naming CLI session..."
+            "timeout": 10,
+            "statusMessage": "Starting CLI auto-title worker..."
           }
         ]
       }
@@ -103,4 +103,4 @@ Conceptually the installer adds this group to `hooks.Stop` (the real command con
 
 ## Why `Stop` instead of `SessionStart`
 
-`SessionStart` occurs before there is enough conversation content to make a good title, and its hook source describes lifecycle state such as startup/resume rather than reliably identifying the UI that created the thread. `Stop` provides the thread ID after a completed turn; the hook then asks app-server for authoritative thread metadata, including the actual session source and current name.
+`SessionStart` occurs before there is enough conversation content to make a good title, and its hook source describes lifecycle state such as startup/resume rather than reliably identifying the UI that created the thread. `Stop` provides the thread ID after a completed turn; the detached worker then asks app-server for authoritative thread metadata, including the actual session source and current name.
