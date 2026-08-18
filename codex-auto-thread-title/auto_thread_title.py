@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Automatically name newly created Codex CLI threads after their first completed turn.
+"""Automatically name unnamed Codex CLI threads after prompt submission.
 
 This hook intentionally uses Codex app-server APIs instead of editing SQLite or rollout files.
 The synchronous Codex hook only detaches a background worker and returns; the worker performs
@@ -157,7 +157,7 @@ def spawn_background_worker(payload: dict[str, Any]) -> None:
         return
 
     reduced_payload: dict[str, Any] = {
-        "hook_event_name": "Stop",
+        "hook_event_name": "UserPromptSubmit",
         "session_id": session_id,
     }
     model = payload.get("model")
@@ -436,7 +436,7 @@ def generate_title(preview: str, model: str | None, provider: str | None) -> str
 def handle_hook(payload: dict[str, Any]) -> int:
     if os.environ.get(CHILD_GUARD_ENV) == "1":
         return 0
-    if payload.get("hook_event_name") != "Stop":
+    if payload.get("hook_event_name") != "UserPromptSubmit":
         return 0
 
     session_id = payload.get("session_id")
@@ -501,7 +501,7 @@ def handle_hook(payload: dict[str, Any]) -> int:
                 log_event("named", session_id=session_id, generation=generation)
                 return 0
         except Exception as exc:
-            # Fail open. A later Stop event can retry because we deliberately do not mark
+            # Fail open. A later UserPromptSubmit event can retry because we deliberately do not mark
             # the session processed after an operational failure.
             log_event("error", session_id=session_id, error=type(exc).__name__)
             return 0
@@ -516,7 +516,7 @@ def main() -> int:
                 return 0
             return handle_hook(payload)
 
-        # The title-generation child inherits this guard. Its own Stop hook must
+        # The title-generation child inherits this guard. Its own UserPromptSubmit hook must
         # return immediately instead of spawning another title worker.
         if os.environ.get(CHILD_GUARD_ENV) == "1":
             return 0
@@ -525,7 +525,7 @@ def main() -> int:
         payload = json.loads(raw) if raw.strip() else {}
         if not isinstance(payload, dict):
             return 0
-        if payload.get("hook_event_name") != "Stop":
+        if payload.get("hook_event_name") != "UserPromptSubmit":
             return 0
         spawn_background_worker(payload)
         return 0
