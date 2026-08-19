@@ -1,23 +1,51 @@
 # Pi Auto Session Title
 
-Global Pi extension that names an unnamed session as soon as the user submits a prompt.
+> Retired local implementation: use the community `furbyhaxx/pi-session-naming` extension instead of copying a custom extension into `~/.pi/agent/extensions/`.
 
-## Behavior
+## Current recommendation
 
-- Uses Pi's `before_agent_start` event, which runs after prompt submission and before the main agent loop.
-- Reads the first user message from the current session history, so resuming an old unnamed session and typing `继续` still titles it from the original request.
-- Uses Pi's current model through `ctx.modelRegistry.complete()` in the background to generate a short title.
-- Applies the result with the official `pi.setSessionName()` API.
-- Never overwrites a name already set by `/name` or `--name`.
-- Cancels application of a background result if the user switches sessions before generation finishes.
-- Falls back to a local sanitized title if the title model call fails.
+Install the community extension:
 
-## Install
+```powershell
+pi install git:https://github.com/furbyhaxx/pi-session-naming
+```
 
-Place `auto-session-title.ts` in:
+The extension uses Pi-native session APIs, including `pi.setSessionName()`, preserves manual names, and also provides `/rename` and `/sessions` workflows.
+
+Validated with **Pi 0.84.2** on 2026-08-19.
+
+For the local model catalog used in this setup, the following global configuration keeps title generation lightweight and produces plain description-style titles:
+
+```json
+{
+  "session": {
+    "titleGeneration": {
+      "enabled": true,
+      "language": "auto",
+      "model": "www/deepseek-v4-flash:minimal",
+      "retries": 2,
+      "emojis": false,
+      "maxLength": 64,
+      "useTags": false
+    }
+  }
+}
+```
+
+Put the configuration in:
+
+```text
+~/.pi/agent/settings.json
+```
+
+If your Pi installation does not have the `www/deepseek-v4-flash` model, either choose another lightweight model from your own model registry or leave `model` as `auto`.
+
+## Migration from the old extension
+
+Remove the old repository-provided file if present:
 
 ```text
 ~/.pi/agent/extensions/auto-session-title.ts
 ```
 
-Pi auto-discovers global extensions from that directory. Existing Pi processes can use `/reload`; new processes load it automatically.
+Then install `pi-session-naming` with `pi install` as shown above. Existing explicit session names remain authoritative.

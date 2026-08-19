@@ -1,6 +1,28 @@
 # my_scripts
 
-Personal browser userscripts.
+Personal scripts, CLI utilities, and browser userscripts.
+
+## CLI session naming
+
+The repository tracks the currently recommended automatic conversation-title setup for the coding CLIs I use.
+
+| CLI | Current approach | Repository status |
+|---|---|---|
+| Claude Code | Built-in AI auto-title | Custom hook retired; migration note only |
+| Codex CLI | `UserPromptSubmit` + official app-server `thread/read` / `thread/name/set` | Maintained here |
+| Pi | Community `furbyhaxx/pi-session-naming` extension using Pi-native session APIs | Local custom extension retired; migration/install note only |
+
+### Claude Code
+
+Recent Claude Code builds can generate conversation titles natively, so the old custom `auto_session_title.py` hook is no longer needed. See [`claude-auto-session-title/README.md`](claude-auto-session-title/README.md) for migration notes. Validated with Claude Code 2.1.235 on 2026-08-19.
+
+### Codex CLI
+
+[`codex-auto-thread-title/`](codex-auto-thread-title/) remains the maintained custom integration. It never writes Codex SQLite or rollout files directly; it reads authoritative thread metadata through app-server and persists names with `thread/name/set`. Validated with Codex CLI 0.148.0 on 2026-08-19.
+
+### Pi
+
+The old local `auto-session-title.ts` implementation has been retired in favor of the community [`furbyhaxx/pi-session-naming`](https://github.com/furbyhaxx/pi-session-naming) extension. See [`pi-auto-session-title/README.md`](pi-auto-session-title/README.md) for the install command and the lightweight model configuration used here. Validated with Pi 0.84.2 on 2026-08-19.
 
 ## ChatGPT Recent Messages
 

@@ -1,20 +1,27 @@
 # Claude Code Auto Session Title
 
-A `UserPromptSubmit` command hook that sets Claude Code's official `sessionTitle` as soon as an unnamed session receives a prompt.
+> Retired: Claude Code now has a built-in AI auto-title path, so this repository no longer installs or maintains a custom session-title hook.
 
-## Behavior
+## Current recommendation
 
-- Reads the hook's `transcript_path` and finds the first non-meta user prompt, so resumed sessions are named from their original request rather than a later `继续` message.
-- Preserves explicit names detected through Claude Code title/name records.
-- Generates the title locally with a deterministic sanitizer, so the hook adds essentially no model latency before the main Claude turn.
-- Returns only the documented `hookSpecificOutput.sessionTitle` JSON; it never edits transcript or state files.
-- Removes URLs and absolute paths and caps titles at 64 characters.
-- Fails open: parsing/title errors never reject the user prompt.
+Use Claude Code's native conversation auto-title behavior. No extra hook or script is required.
 
-## Install
+Validated with **Claude Code 2.1.235** on 2026-08-19:
 
-```powershell
-python .\install.py
+- a new interactive session automatically received a generated title;
+- the transcript persisted the result as an `ai-title` record;
+- manual `/rename` remains available when an explicit name is preferred.
+
+The previously shipped `UserPromptSubmit -> auto_session_title.py -> hookSpecificOutput.sessionTitle` implementation was useful before native AI titles were available, but keeping it now would duplicate built-in behavior and require unnecessary local maintenance.
+
+## Migration from the old hook
+
+If the old version from this repository was installed, remove its `UserPromptSubmit` entry from `~/.claude/settings.json` and delete:
+
+```text
+~/.claude/hooks/auto_session_title.py
 ```
 
-The installer copies the hook to `~/.claude/hooks/auto_session_title.py`, merges one `UserPromptSubmit` command hook into `~/.claude/settings.json`, preserves unrelated hooks, and makes a timestamped settings backup.
+Preserve unrelated `UserPromptSubmit` hooks.
+
+After migration, start a normal interactive Claude Code session and submit a substantive first prompt. Claude Code should generate the conversation title itself.

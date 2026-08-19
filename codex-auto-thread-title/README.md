@@ -2,6 +2,8 @@
 
 A small Codex `UserPromptSubmit` hook that automatically gives **Codex CLI** conversations a useful title as soon as the user submits a prompt.
 
+Validated with **Codex CLI 0.148.0** on 2026-08-19.
+
 It deliberately does **not** edit `state_*.sqlite`, rollout JSONL files, or other Codex state files directly. Thread inspection and renaming go through Codex app-server APIs.
 
 ## Behavior
