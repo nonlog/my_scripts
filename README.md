@@ -28,7 +28,7 @@ The old local `auto-session-title.ts` implementation has been retired in favor o
 
 `chatgpt-recent-turns.user.js` reduces rendering work and client-side conversation-state overhead in very long ChatGPT Web conversations, especially Agent chats with many tool calls.
 
-### v0.8.0 behavior
+### v0.8.1 behavior
 
 - Shows the latest **5 currently materialized messages** by default.
 - Reveals **5 older messages** at a time when you scroll near the top.
@@ -36,6 +36,7 @@ The old local `auto-session-title.ts` implementation has been retired in favor o
 - After about **4 seconds of inactivity**, the toolbar collapses to one small round icon.
 - The expanded toolbar now also has a **manual collapse button**.
 - The expanded toolbar can be **dragged** using the grip at its top, and the **collapsed floating button can also be dragged directly**; its position is persisted in `localStorage`.
+- v0.8.1 separates click/tap from drag activation: the collapsed floating button opens reliably on release, including when docked/half-hidden, while drag starts only after the pointer moves past the drag threshold.
 - Dropping the toolbar within about **48 px** of the left or right screen edge docks it to that edge.
 - Docking first **collapses the toolbar to the floating button**, then partially slides that button off-screen after about **700 ms** of inactivity. Moving the pointer back over it reveals it again.
 - **Turbo and Tool Compactor default to ON** on first install (an explicit user OFF setting is preserved).
