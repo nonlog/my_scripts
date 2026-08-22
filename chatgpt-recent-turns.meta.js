@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Recent Messages
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      0.8.0
+// @version      0.8.1
 // @description  Reduce long-chat rendering, tool-call layout, and client-state overhead in ChatGPT Web.
 // @homepageURL  https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
