@@ -28,17 +28,18 @@ The old local `auto-session-title.ts` implementation has been retired in favor o
 
 `chatgpt-recent-turns.user.js` reduces rendering work and client-side conversation-state overhead in very long ChatGPT Web conversations, especially Agent chats with many tool calls.
 
-### v0.7.0 behavior
+### v0.8.0 behavior
 
 - Shows the latest **5 currently materialized messages** by default.
 - Reveals **5 older messages** at a time when you scroll near the top.
 - Uses a compact vertical icon toolbar with browser-language tooltips.
 - After about **4 seconds of inactivity**, the toolbar collapses to one small round icon.
 - The expanded toolbar now also has a **manual collapse button**.
-- The toolbar can be **dragged** using the grip at its top; its position is persisted in `localStorage`.
+- The expanded toolbar can be **dragged** using the grip at its top, and the **collapsed floating button can also be dragged directly**; its position is persisted in `localStorage`.
 - Dropping the toolbar within about **48 px** of the left or right screen edge docks it to that edge.
-- A docked toolbar partially slides off-screen after about **700 ms** of inactivity and slides fully back into view when the pointer returns.
-- Keeps Tool Compactor enabled by default: consecutive `Called tool` rows are hidden and represented by one lightweight bundle button.
+- Docking first **collapses the toolbar to the floating button**, then partially slides that button off-screen after about **700 ms** of inactivity. Moving the pointer back over it reveals it again.
+- **Turbo and Tool Compactor default to ON** on first install (an explicit user OFF setting is preserved).
+- Tool Compactor hides consecutive `Called tool` rows behind one lightweight bundle button.
 - Uses the incremental Tool Compactor introduced in v0.4.1, avoiding the previous restore/rebuild cycle during tool streaming.
 - Keeps Adaptive Turbo enabled by default for unusually heavy conversations.
 - Includes **Deep Turbo**: if the newest single user turn itself becomes extremely tool-heavy, the initial client mapping keeps the user node plus only the most recent internal tail instead of retaining the entire huge turn.
@@ -89,21 +90,23 @@ Do not change `@namespace` unless you intentionally want ScriptCat to treat it a
 
 ## Turbo details
 
-Turbo intercepts the initial conversation `GET` response before ChatGPT stores the full mapping in long-lived client state.
+Turbo intercepts conversation `GET` responses before ChatGPT stores them in long-lived client state. v0.8 supports both the older mapping response and the current flat `messages[]` API.
 
-Normal Adaptive Turbo:
+For the current `/backend-api/conversations/<id>` API, Turbo now:
 
-- Keeps at most 3 recent user turns.
-- Uses approximately 450 path nodes / 700 KB serialized-message budgets.
+- Caps ChatGPT's initial `num_turns` request to **3** instead of the Web client's usual larger request.
+- Keeps at most 3 recent user turns within approximately **450 messages / 420 KB** of serialized message data.
+- Forces the returned page to report no older page and blocks `/messages?before=...` history pagination while Turbo is active, preventing the Web client from immediately loading another large tool-heavy page.
+- Uses a flat-API Deep Turbo threshold of roughly **100 internal messages** or **300 KB** for the newest user turn; an oversized turn keeps that user message plus roughly **80 recent internal messages**.
 
-Deep Turbo additionally activates when the latest user turn alone exceeds roughly **260 internal nodes** or **500 KB** of serialized message data. It keeps the latest user node plus about **120 recent internal nodes**, rewiring the retained chain locally for that page load.
+For the older mapping API, the existing Adaptive/Deep Turbo logic remains: at most 3 recent user turns, approximately 450 path nodes / 700 KB, with Deep Turbo at roughly 260 nodes or 500 KB and a ~120-node tail.
 
-Disable Turbo and reload whenever you need the full older client-side history in that tab.
+Disable Turbo and reload whenever you need the full older server history in that tab. Server-side conversation data is never deleted or edited.
 
 ## Limitations
 
 ChatGPT already performs its own DOM virtualization, so hiding DOM elements alone cannot eliminate every slowdown. Tool-heavy conversations may still accumulate large live React/client state while an Agent continues running after the page has loaded.
 
-Tool Compactor intentionally keeps React-owned nodes intact for compatibility. Deep Turbo only changes the client-side mapping returned to that page load; it does not edit the server-side conversation.
+Tool Compactor intentionally keeps React-owned nodes intact for compatibility. Turbo only changes what the current page requests/retains locally; it does not edit the server-side conversation. While Turbo is enabled, older history pagination is intentionally suppressed for performance; disable Turbo and reload to browse the complete history.
 
 ChatGPT Web DOM structure and private conversation response formats are not stable public APIs and may require selector or trimming updates in the future.
