@@ -28,10 +28,12 @@ The old local `auto-session-title.ts` implementation has been retired in favor o
 
 `chatgpt-recent-turns.user.js` reduces rendering work and client-side conversation-state overhead in very long ChatGPT Web conversations, especially Agent chats with many tool calls.
 
-### v0.8.1 behavior
+### v0.8.2 behavior
 
 - Shows the latest **5 currently materialized messages** by default.
 - Reveals **5 older messages** at a time when you scroll near the top.
+- Fixes the toolbar's older-message button under Turbo: after already-materialized hidden messages are exhausted, an explicit click fetches the next **5 older server turns** and opens them in a lightweight read-only history panel instead of restoring the full tool-heavy React state.
+- Repeated older-message clicks continue backward using the server cursor. Automatic background history pagination remains blocked.
 - Uses a compact vertical icon toolbar with browser-language tooltips.
 - After about **4 seconds of inactivity**, the toolbar collapses to one small round icon.
 - The expanded toolbar now also has a **manual collapse button**.
@@ -49,7 +51,7 @@ The old local `auto-session-title.ts` implementation has been retired in favor o
 ### Controls
 
 - Drag grip: move the toolbar.
-- Up arrow: load 5 older materialized messages.
+- Up arrow: reveal up to 5 older materialized messages; when none remain, manually fetch 5 older server turns into the lightweight history panel.
 - Lines icon: show all currently materialized messages / return to recent messages.
 - Reset icon: return to the latest 5 messages.
 - Lightning icon: toggle Turbo mode and reload.
@@ -97,7 +99,8 @@ For the current `/backend-api/conversations/<id>` API, Turbo now:
 
 - Caps ChatGPT's initial `num_turns` request to **3** instead of the Web client's usual larger request.
 - Keeps at most 3 recent user turns within approximately **450 messages / 420 KB** of serialized message data.
-- Forces the returned page to report no older page and blocks `/messages?before=...` history pagination while Turbo is active, preventing the Web client from immediately loading another large tool-heavy page.
+- Forces the returned page to report no older page and blocks **automatic** `/messages?before=...` history pagination while Turbo is active, preventing the Web client from immediately loading another large tool-heavy page.
+- The toolbar's up-arrow button has a separate manual history path: each explicit click can fetch **5 older turns** using the saved cursor. Only user/assistant text and a tool-call count are retained in a lightweight userscript-owned panel, so those old tool payloads never enter ChatGPT's React/client state.
 - Uses a flat-API Deep Turbo threshold of roughly **100 internal messages** or **300 KB** for the newest user turn; an oversized turn keeps that user message plus roughly **80 recent internal messages**.
 
 For the older mapping API, the existing Adaptive/Deep Turbo logic remains: at most 3 recent user turns, approximately 450 path nodes / 700 KB, with Deep Turbo at roughly 260 nodes or 500 KB and a ~120-node tail.
@@ -108,6 +111,6 @@ Disable Turbo and reload whenever you need the full older server history in that
 
 ChatGPT already performs its own DOM virtualization, so hiding DOM elements alone cannot eliminate every slowdown. Tool-heavy conversations may still accumulate large live React/client state while an Agent continues running after the page has loaded.
 
-Tool Compactor intentionally keeps React-owned nodes intact for compatibility. Turbo only changes what the current page requests/retains locally; it does not edit the server-side conversation. While Turbo is enabled, older history pagination is intentionally suppressed for performance; disable Turbo and reload to browse the complete history.
+Tool Compactor intentionally keeps React-owned nodes intact for compatibility. Turbo only changes what the current page requests/retains locally; it does not edit the server-side conversation. While Turbo is enabled, automatic older-history pagination is intentionally suppressed for performance. The lightweight history panel is text-first: tool payloads are represented only by counts and non-text attachments may be omitted. Disable Turbo and reload when you need ChatGPT's full native history UI.
 
 ChatGPT Web DOM structure and private conversation response formats are not stable public APIs and may require selector or trimming updates in the future.
