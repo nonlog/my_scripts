@@ -1,51 +1,51 @@
 # Pi Auto Session Title
 
-> Retired local implementation: use the community `furbyhaxx/pi-session-naming` extension instead of copying a custom extension into `~/.pi/agent/extensions/`.
+The previous community `furbyhaxx/pi-session-naming` recommendation has been replaced by the dedicated [`nonlog/pi-auto-session-title`](https://github.com/nonlog/pi-auto-session-title) extension.
 
 ## Current recommendation
 
-Install the community extension:
+Install:
 
 ```powershell
-pi install git:https://github.com/furbyhaxx/pi-session-naming
+pi install git:https://github.com/nonlog/pi-auto-session-title
 ```
 
-The extension uses Pi-native session APIs, including `pi.setSessionName()`, preserves manual names, and also provides `/rename` and `/sessions` workflows.
+The extension uses Pi-native APIs:
 
-Validated with **Pi 0.84.2** on 2026-08-19.
+```text
+before_agent_start
+-> ctx.modelRegistry.complete()
+-> pi.setSessionName()
+```
 
-For the local model catalog used in this setup, the following global configuration keeps title generation lightweight and produces plain description-style titles:
+It preserves manual names, re-checks session/name state after title generation, ignores trivial first prompts such as `继续` or `continue`, supports `/retitle`, and falls back to a sanitized local title if the model errors, returns empty output, or times out.
+
+Validated with **Pi 0.84.3** on 2026-08-27.
+
+Current configuration:
 
 ```json
 {
   "session": {
     "titleGeneration": {
       "enabled": true,
-      "language": "auto",
-      "model": "www/deepseek-v4-flash:minimal",
+      "model": "www/gpt-5.6-luna:minimal",
       "retries": 2,
-      "emojis": false,
       "maxLength": 64,
-      "useTags": false
+      "timeoutMs": 12000
     }
   }
 }
 ```
 
-Put the configuration in:
+`www/deepseek-v4-flash:minimal` was previously used for title generation, but real-session testing showed that request path could hang. `www/gpt-5.6-luna:minimal` was verified end-to-end to generate and persist session titles reliably.
 
-```text
-~/.pi/agent/settings.json
+## Migration
+
+Remove the old community extension if installed:
+
+```powershell
+pi remove git:https://github.com/furbyhaxx/pi-session-naming
 ```
 
-If your Pi installation does not have the `www/deepseek-v4-flash` model, either choose another lightweight model from your own model registry or leave `model` as `auto`.
-
-## Migration from the old extension
-
-Remove the old repository-provided file if present:
-
-```text
-~/.pi/agent/extensions/auto-session-title.ts
-```
-
-Then install `pi-session-naming` with `pi install` as shown above. Existing explicit session names remain authoritative.
+Then install the dedicated extension as shown above. Existing explicit session names remain authoritative.

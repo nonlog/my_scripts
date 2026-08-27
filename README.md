@@ -10,7 +10,7 @@ The repository tracks the currently recommended automatic conversation-title set
 |---|---|---|
 | Claude Code | Built-in AI auto-title | Custom hook retired; migration note only |
 | Codex CLI | `UserPromptSubmit` + official app-server `thread/read` / `thread/name/set` | Maintained here |
-| Pi | Community `furbyhaxx/pi-session-naming` extension using Pi-native session APIs | Local custom extension retired; migration/install note only |
+| Pi | Dedicated `nonlog/pi-auto-session-title` extension using `modelRegistry.complete()` + `pi.setSessionName()` | Maintained in dedicated repository; install note here |
 
 ### Claude Code
 
@@ -22,7 +22,7 @@ Recent Claude Code builds can generate conversation titles natively, so the old 
 
 ### Pi
 
-The old local `auto-session-title.ts` implementation has been retired in favor of the community [`furbyhaxx/pi-session-naming`](https://github.com/furbyhaxx/pi-session-naming) extension. See [`pi-auto-session-title/README.md`](pi-auto-session-title/README.md) for the install command and the lightweight model configuration used here. Validated with Pi 0.84.2 on 2026-08-19.
+[`nonlog/pi-auto-session-title`](https://github.com/nonlog/pi-auto-session-title) is now the maintained Pi integration. It uses `ctx.modelRegistry.complete()` for title generation and persists names only with `pi.setSessionName()`, while preserving manual names and providing timeout/fallback handling plus `/retitle`. See [`pi-auto-session-title/README.md`](pi-auto-session-title/README.md) for installation and configuration. Validated with Pi 0.84.3 on 2026-08-27.
 
 ## ChatGPT Recent Messages
 
@@ -114,3 +114,4 @@ ChatGPT already performs its own DOM virtualization, so hiding DOM elements alon
 Tool Compactor intentionally keeps React-owned nodes intact for compatibility. Turbo only changes what the current page requests/retains locally; it does not edit the server-side conversation. While Turbo is enabled, automatic older-history pagination is intentionally suppressed for performance. The lightweight history panel is text-first: tool payloads are represented only by counts and non-text attachments may be omitted. Disable Turbo and reload when you need ChatGPT's full native history UI.
 
 ChatGPT Web DOM structure and private conversation response formats are not stable public APIs and may require selector or trimming updates in the future.
+
