@@ -7,7 +7,7 @@ A shared Windows 11 toast notifier with thin adapters for the three coding CLIs 
 - **Codex CLI**: user-level `Stop` hook. Current Codex sends the hook JSON over stdin, including `cwd` and `last_assistant_message`. This deliberately avoids the legacy `notify = [...]` argv payload, which can hit the Windows command-line length limit on long turns.
 - **Claude Code**: user-level `Stop` hook. It consumes `last_assistant_message` directly instead of racing the transcript file.
 - **Pi**: extension records the last `turn_end` assistant text and sends the notification on `agent_settled`, so retries, compaction recovery, or queued continuation do not trigger a premature toast.
-- **Shared layer**: PowerShell/WinRT `ToastNotificationManager`. No PowerShell module is required.
+- **Shared layer**: Windows PowerShell 5.1/WinRT `ToastNotificationManager`. PowerShell 7 runs the installer, while the toast adapters use Windows PowerShell because PowerShell 7 does not expose the required WinRT projection on this workstation. No third-party PowerShell module is required.
 
 The default AppUserModelID is Windows Terminal:
 
@@ -19,7 +19,7 @@ That keeps the notification routed through an installed Windows application iden
 
 ## Install
 
-From this directory in PowerShell 7:
+From this directory in PowerShell 7 (required by the installer for `ConvertFrom-Json -AsHashtable`):
 
 ```powershell
 pwsh -NoProfile -File .\install.ps1

@@ -6,13 +6,13 @@ $env:AI_CLI_NOTIFY_FORCE = '1'
 $env:AI_CLI_NOTIFY_TEST_OUTPUT = $temp
 try {
     $codex = @{ hook_event_name='Stop'; session_id='s1'; turn_id='t1'; cwd='C:\work\codex'; last_assistant_message='Codex done' } | ConvertTo-Json -Compress
-    $codex | & pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $root 'adapters\codex-stop.ps1')
+    $codex | & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $root 'adapters\codex-stop.ps1')
     $result = Get-Content -LiteralPath $temp -Raw | ConvertFrom-Json
     if ($result.source -ne 'Codex' -or $result.message -ne 'Codex done' -or $result.cwd -ne 'C:\work\codex') { throw 'Codex adapter smoke test failed.' }
 
     Remove-Item -LiteralPath $temp -Force
     $claude = @{ hook_event_name='Stop'; session_id='s2'; cwd='C:\work\claude'; last_assistant_message='Claude done' } | ConvertTo-Json -Compress
-    $claude | & pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $root 'adapters\claude-stop.ps1')
+    $claude | & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $root 'adapters\claude-stop.ps1')
     $result = Get-Content -LiteralPath $temp -Raw | ConvertFrom-Json
     if ($result.source -ne 'Claude Code' -or $result.message -ne 'Claude done' -or $result.cwd -ne 'C:\work\claude') { throw 'Claude adapter smoke test failed.' }
 

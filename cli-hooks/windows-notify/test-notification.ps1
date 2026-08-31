@@ -8,4 +8,4 @@ $payload = [ordered]@{
     force = $true
 }
 $json = $payload | ConvertTo-Json -Compress
-$json | & pwsh.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'shared\notify.ps1')
+$json | & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'shared\notify.ps1')

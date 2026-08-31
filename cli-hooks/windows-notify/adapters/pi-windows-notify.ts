@@ -24,7 +24,7 @@ function notify(payload: Record<string, unknown>): void {
   if (!script) return;
   try {
     const child = spawn(
-      "pwsh.exe",
+      "powershell.exe",
       ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script],
       { windowsHide: true, stdio: ["pipe", "ignore", "ignore"] },
     );

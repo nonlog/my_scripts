@@ -18,9 +18,9 @@ function Get-AgentNotifyConfig {
 
     if (Test-Path -LiteralPath $ConfigPath -PathType Leaf) {
         try {
-            $custom = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json -AsHashtable
-            foreach ($key in $custom.Keys) {
-                $defaults[$key] = $custom[$key]
+            $custom = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+            foreach ($property in $custom.PSObject.Properties) {
+                $defaults[$property.Name] = $property.Value
             }
         } catch {
             # Invalid optional config must never break a CLI completion hook.
