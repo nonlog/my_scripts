@@ -1,0 +1,8 @@
+{
+  "appId": "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App",
+  "maxMessageChars": 420,
+  "maxCwdChars": 140,
+  "suppressWhenWindowsTerminalForeground": true,
+  "showWorkingDirectory": true,
+  "logFailures": true
+}
