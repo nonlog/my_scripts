@@ -16,7 +16,7 @@
 - Dropping the toolbar within about **48 px** of the left or right screen edge docks it to that edge.
 - Docking first **collapses the toolbar to the floating button**, then partially slides that button off-screen after about **700 ms** of inactivity. Moving the pointer back over it reveals it again.
 - **Turbo and Tool Compactor default to ON** on first install (an explicit user OFF setting is preserved).
-- Tool Compactor hides consecutive `Called tool` rows behind one lightweight bundle button. v0.8.4 supports both the older direct group/tool-message DOM and the newer div.contents wrappers used by ChatGPT Web.
+- Tool Compactor hides all `Called tool` rows from the same agent turn behind one lightweight bundle button, even when ChatGPT inserts status/progress rows between tool calls. v0.8.5 keeps those non-tool status rows visible and rescans only when tool DOM changes.
 - Uses the incremental Tool Compactor introduced in v0.4.1, avoiding the previous restore/rebuild cycle during tool streaming.
 - Keeps Adaptive Turbo enabled by default for unusually heavy conversations.
 - Includes **Deep Turbo**: if the newest single user turn itself becomes extremely tool-heavy, the initial client mapping keeps the user node plus only the most recent internal tail instead of retaining the entire huge turn.
