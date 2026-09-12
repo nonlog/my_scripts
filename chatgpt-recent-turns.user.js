@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Recent Messages
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      0.8.4
+// @version      0.8.5
 // @description  Reduce long-chat rendering, tool-call layout, and client-state overhead in ChatGPT Web.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
@@ -17,7 +17,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.8.4';
+  const VERSION = '0.8.5';
   const INITIAL_MESSAGES = 5;
   const LOAD_STEP = 5;
   const TOP_THRESHOLD_PX = 220;
@@ -533,21 +533,31 @@
 
   const messages = () => [...document.querySelectorAll(TURN_SELECTOR)];
   function hidden(node, attr, value) { const old = node.getAttribute(attr) === 'true'; if (old === value) return; value ? node.setAttribute(attr, 'true') : node.removeAttribute(attr); }
-  function spacer(node) { return node?.nodeType === 1 && node.tagName === 'DIV' && node.classList.contains('empty:hidden') && !(node.textContent || '').trim(); }
-
   function toolCount(node) { if (!node?.matches) return 0; return (node.matches(TOOL_SELECTOR) ? 1 : 0) + (node.querySelectorAll?.(TOOL_SELECTOR).length || 0); }
+  function toolRows(container) { return [...container.children].filter(child => !child.classList?.contains(TOOL_BUNDLE) && toolCount(child)); }
+  function toolMutation(records) { return records.some(r => [...r.addedNodes, ...r.removedNodes].some(n => n?.nodeType === 1 && (n.matches?.(TOOL_SELECTOR) || n.querySelector?.(TOOL_SELECTOR)))); }
   function restoreTools(container) { container.querySelectorAll(`:scope>.${TOOL_BUNDLE}`).forEach(x => x.remove()); container.querySelectorAll(`:scope>[${TOOL_HIDDEN}="true"]`).forEach(x => hidden(x, TOOL_HIDDEN, false)); }
   function setBundle(button, tools, expanded) { button.__members = tools; button.dataset.expanded = String(expanded); const count = tools.reduce((sum, node) => sum + toolCount(node), 0); const label = t.bundle(count, expanded); button.setAttribute('aria-label', label); button.querySelector('span').textContent = label; tools.forEach(x => hidden(x, TOOL_HIDDEN, !expanded)); }
-  function makeBundle(container, anchor) { const b = document.createElement('button'); b.type='button'; b.className=TOOL_BUNDLE; b.__anchor=anchor; b.innerHTML=`${icons.tools}<span></span><svg class="cgpt-tool-bundle-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg>`; b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); const list=(b.__members||[]).filter(x=>x.isConnected&&x.parentElement===container); setBundle(b,list,b.dataset.expanded!=='true'); }); return b; }
+  function makeBundle(container, anchor) { const b = document.createElement('button'); b.type='button'; b.className=TOOL_BUNDLE; b.__anchor=anchor; b.innerHTML=`${icons.tools}<span></span><svg class="cgpt-tool-bundle-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg>`; b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); setBundle(b,toolRows(container),b.dataset.expanded!=='true'); }); return b; }
   function compact(container) {
     if (!container?.isConnected) return; const observer=toolObservers.get(container); observer?.disconnect();
-    try { if (!toolEnabled()) return restoreTools(container); const existing=[...container.querySelectorAll(`:scope>.${TOOL_BUNDLE}`)], byAnchor=new Map(existing.map(x=>[x.__anchor,x])), claimed=new Set(); let group=[];
-      const flush=()=>{ if(!group.length)return; if(group.length<2){group.forEach(x=>hidden(x,TOOL_HIDDEN,false));group=[];return} const anchor=group[0]; let b=byAnchor.get(anchor); if(!b){b=makeBundle(container,anchor);container.insertBefore(b,anchor)} claimed.add(b);setBundle(b,group,b.dataset.expanded==='true');group=[] };
-      [...container.children].forEach(child=>{ if(child.classList?.contains(TOOL_BUNDLE))return; if(toolCount(child)){group.push(child);return} if(group.length&&spacer(child))return;flush() }); flush(); existing.forEach(x=>{if(!claimed.has(x))x.remove()});
+    try {
+      if (!toolEnabled()) return restoreTools(container);
+      const existing=[...container.querySelectorAll(`:scope>.${TOOL_BUNDLE}`)];
+      const tools=toolRows(container), toolSet=new Set(tools);
+      container.querySelectorAll(`:scope>[${TOOL_HIDDEN}="true"]`).forEach(x=>{if(!toolSet.has(x))hidden(x,TOOL_HIDDEN,false)});
+      const count=tools.reduce((sum,node)=>sum+toolCount(node),0);
+      if(count<2){existing.forEach(x=>x.remove());tools.forEach(x=>hidden(x,TOOL_HIDDEN,false));return}
+      const anchor=tools[0];
+      let b=existing.find(x=>x.__anchor===anchor);
+      const expanded=b ? b.dataset.expanded==='true' : existing.some(x=>x.dataset.expanded==='true');
+      if(!b){b=makeBundle(container,anchor);container.insertBefore(b,anchor)}
+      setBundle(b,tools,expanded);
+      existing.forEach(x=>{if(x!==b)x.remove()});
     } finally { if(observer&&container.isConnected) observer.observe(container,{childList:true,subtree:true}); }
   }
   function toolContainers(list){const set=new Set();list.forEach(m=>m.querySelectorAll('[class~="agent-turn"] div.flex.flex-col.grow').forEach(x=>set.add(x)));return set}
-  function syncTools(list){const set=toolContainers(list);if(!toolEnabled()){stopTools();set.forEach(restoreTools);return}for(const [c,o] of toolObservers){if(c.isConnected&&set.has(c))continue;o.disconnect();toolObservers.delete(c)}for(const c of set){if(!toolObservers.has(c)){const o=new MutationObserver(()=>{clearTimeout(toolTimers.get(c));toolTimers.set(c,setTimeout(()=>{compact(c);updatePanel(messages().length)},180))});o.observe(c,{childList:true,subtree:true});toolObservers.set(c,o)}compact(c)}}
+  function syncTools(list){const set=toolContainers(list);if(!toolEnabled()){stopTools();set.forEach(restoreTools);return}for(const [c,o] of toolObservers){if(c.isConnected&&set.has(c))continue;o.disconnect();toolObservers.delete(c)}for(const c of set){if(!toolObservers.has(c)){const o=new MutationObserver(records=>{if(!toolMutation(records))return;clearTimeout(toolTimers.get(c));toolTimers.set(c,setTimeout(()=>{compact(c);updatePanel(messages().length)},80))});o.observe(c,{childList:true,subtree:true});toolObservers.set(c,o)}compact(c)}}
   function stopTools(){toolObservers.forEach(o=>o.disconnect());toolObservers.clear();toolTimers.forEach(clearTimeout);toolTimers.clear();clearTimeout(toolUiTimer)}
 
   function findRoot(list){if(!list.length)return null;let r=list[0].parentElement;while(r&&!list.every(x=>r.contains(x)))r=r.parentElement;return r}
