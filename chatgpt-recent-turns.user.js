@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ChatGPT Recent Messages
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      0.8.3
+// @version      0.8.4
 // @description  Reduce long-chat rendering, tool-call layout, and client-state overhead in ChatGPT Web.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
@@ -17,7 +17,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.8.3';
+  const VERSION = '0.8.4';
   const INITIAL_MESSAGES = 5;
   const LOAD_STEP = 5;
   const TOP_THRESHOLD_PX = 220;
@@ -40,7 +40,6 @@
   const DEEP_TRIGGER_CHARS = 500000;
   const DEEP_TAIL_NODES = 120;
   const HISTORY_BATCH_TURNS = 5;
-  const HISTORY_MANUAL_FLAG = '__cgptRecentManualHistory';
 
   const TOOL_KEY = 'cgpt-recent-messages-tool-compact-v1';
   const TOOL_SELECTOR = 'span.group\\/tool-message';
@@ -78,8 +77,13 @@
   let visibleCount = INITIAL_MESSAGES, showAll = false, updateTimer = null, collapseTimer = null, peekTimer = null;
   let scrollRoot = null, listRoot = null, listObserver = null, discoveryObserver = null, topLoadArmed = true;
   let lastUrl = location.href, toolUiTimer = null, dragState = null, suppressPanelClickUntil = 0, workspaceLimitScanTimer = null;
+  let turboOriginalFetch = null;
   const toolObservers = new Map(), toolTimers = new Map();
-  const historyState = { conversationId: null, initialCursor: null, cursor: null, initialHasPrevious: false, hasPrevious: false, loading: false, turns: [] };
+  const historyState = {
+    conversationId: null, requestHeaders: null, requestCredentials: 'same-origin', requestCache: 'default', requestRedirect: 'follow', requestReferrerPolicy: '',
+    initialServerTurns: TURBO_SERVER_TURNS, serverTurns: TURBO_SERVER_TURNS, initialSeenIds: new Set(), seenIds: new Set(),
+    initialOldestCreateTime: null, oldestCreateTime: null, loading: false, exhausted: false, turns: [],
+  };
 
   const turboEnabled = () => localStorage.getItem(TURBO_KEY) !== '0';
   const toolEnabled = () => localStorage.getItem(TOOL_KEY) !== '0';
@@ -118,11 +122,19 @@
 
   function resetHistoryState() {
     historyState.conversationId = null;
-    historyState.initialCursor = null;
-    historyState.cursor = null;
-    historyState.initialHasPrevious = false;
-    historyState.hasPrevious = false;
+    historyState.requestHeaders = null;
+    historyState.requestCredentials = 'same-origin';
+    historyState.requestCache = 'default';
+    historyState.requestRedirect = 'follow';
+    historyState.requestReferrerPolicy = '';
+    historyState.initialServerTurns = TURBO_SERVER_TURNS;
+    historyState.serverTurns = TURBO_SERVER_TURNS;
+    historyState.initialSeenIds = new Set();
+    historyState.seenIds = new Set();
+    historyState.initialOldestCreateTime = null;
+    historyState.oldestCreateTime = null;
     historyState.loading = false;
+    historyState.exhausted = false;
     historyState.turns = [];
     document.getElementById(HISTORY_ARCHIVE_ID)?.remove();
     window.__cgptRecentMessagesHistoryState = null;
@@ -131,25 +143,50 @@
   function publishHistoryState() {
     window.__cgptRecentMessagesHistoryState = {
       conversationId: historyState.conversationId,
-      cursor: historyState.cursor,
-      hasPrevious: historyState.hasPrevious,
+      serverTurns: historyState.serverTurns,
+      exhausted: historyState.exhausted,
+      canLoadRemote: Boolean(historyState.requestHeaders && turboOriginalFetch),
       loading: historyState.loading,
       archivedTurns: historyState.turns.length,
     };
   }
 
-  function captureFlatHistory(data, info) {
+  function captureFlatRequestContext(input, init, info, networkTurns) {
     const id = info?.url?.pathname?.split('/').filter(Boolean).at(-1) || null;
-    const cursor = data?.page_info?.start_cursor || data?.messages?.[0]?.id || null;
-    const hasPrevious = Boolean(data?.page_info?.has_previous_page && cursor);
     const changedConversation = historyState.conversationId && historyState.conversationId !== id;
     if (changedConversation) resetHistoryState();
     historyState.conversationId = id;
-    if (!historyState.initialCursor || changedConversation || !historyState.turns.length) {
-      historyState.initialCursor = cursor;
-      historyState.cursor = cursor;
-      historyState.initialHasPrevious = hasPrevious;
-      historyState.hasPrevious = hasPrevious;
+    try {
+      const request = typeof Request !== 'undefined' && input instanceof Request ? new Request(input, init) : new Request(info.url.href, init);
+      historyState.requestHeaders = new Headers(request.headers);
+      historyState.requestCredentials = request.credentials || 'same-origin';
+      historyState.requestCache = request.cache || 'default';
+      historyState.requestRedirect = request.redirect || 'follow';
+      historyState.requestReferrerPolicy = request.referrerPolicy || '';
+    } catch {
+      historyState.requestHeaders = new Headers(init?.headers || {});
+      historyState.requestCredentials = init?.credentials || 'same-origin';
+    }
+    historyState.initialServerTurns = networkTurns || TURBO_SERVER_TURNS;
+    if (!historyState.turns.length) historyState.serverTurns = historyState.initialServerTurns;
+  }
+
+  function captureFlatHistory(data, info) {
+    const id = info?.url?.pathname?.split('/').filter(Boolean).at(-1) || null;
+    const changedConversation = historyState.conversationId && historyState.conversationId !== id;
+    if (changedConversation) resetHistoryState();
+    historyState.conversationId = id;
+    if (!historyState.turns.length) {
+      const list = Array.isArray(data?.messages) ? data.messages : [];
+      const ids = new Set(list.map(message => message?.id).filter(Boolean));
+      const times = list.map(message => Number(message?.create_time)).filter(Number.isFinite);
+      historyState.initialSeenIds = new Set(ids);
+      historyState.seenIds = new Set(ids);
+      historyState.initialOldestCreateTime = times.length ? Math.min(...times) : null;
+      historyState.oldestCreateTime = historyState.initialOldestCreateTime;
+      // The current flat API may return has_previous_page=false even when a capped
+      // num_turns response is only the recent tail. Do not treat it as authoritative.
+      historyState.exhausted = false;
     }
     historyState.loading = false;
     publishHistoryState();
@@ -157,9 +194,11 @@
   }
 
   function resetHistoryArchive() {
-    historyState.cursor = historyState.initialCursor;
-    historyState.hasPrevious = historyState.initialHasPrevious;
+    historyState.serverTurns = historyState.initialServerTurns;
+    historyState.seenIds = new Set(historyState.initialSeenIds);
+    historyState.oldestCreateTime = historyState.initialOldestCreateTime;
     historyState.loading = false;
+    historyState.exhausted = false;
     historyState.turns = [];
     document.getElementById(HISTORY_ARCHIVE_ID)?.remove();
     publishHistoryState();
@@ -244,22 +283,38 @@
   }
 
   async function loadOlderHistory() {
-    if (!turboEnabled() || historyState.loading || !historyState.conversationId || !historyState.cursor || !historyState.hasPrevious) return;
+    if (!turboEnabled() || historyState.loading || historyState.exhausted || !historyState.conversationId || !historyState.requestHeaders || !turboOriginalFetch) return;
     historyState.loading = true; publishHistoryState(); updatePanel(messages().length);
     try {
-      const url = new URL(`/backend-api/conversations/${historyState.conversationId}/messages`, location.origin);
-      url.searchParams.set('before', historyState.cursor);
-      url.searchParams.set('num_turns', String(HISTORY_BATCH_TURNS));
-      const response = await window.fetch(url.href, { credentials: 'same-origin', [HISTORY_MANUAL_FLAG]: true });
+      const nextTurns = historyState.serverTurns + HISTORY_BATCH_TURNS;
+      const url = new URL(`/backend-api/conversations/${historyState.conversationId}`, location.origin);
+      url.searchParams.set('include_has_versions', 'true');
+      url.searchParams.set('num_turns', String(nextTurns));
+      const response = await turboOriginalFetch(url.href, {
+        method: 'GET',
+        headers: new Headers(historyState.requestHeaders),
+        credentials: historyState.requestCredentials,
+        cache: historyState.requestCache,
+        redirect: historyState.requestRedirect,
+        referrerPolicy: historyState.requestReferrerPolicy || undefined,
+      });
       if (!response.ok) throw new Error(`history request failed: ${response.status}`);
-      const data = await response.json(), extracted = extractHistoryTurns(data?.messages);
+      const data = await response.json(), list = Array.isArray(data?.messages) ? data.messages : [];
+      const firstSeenIndex = list.findIndex(message => message?.id && historyState.seenIds.has(message.id));
+      let olderMessages = firstSeenIndex > 0 ? list.slice(0, firstSeenIndex) : [];
+      if (firstSeenIndex < 0 && Number.isFinite(historyState.oldestCreateTime)) {
+        olderMessages = list.filter(message => Number.isFinite(Number(message?.create_time)) && Number(message.create_time) < historyState.oldestCreateTime);
+      }
+      const extracted = extractHistoryTurns(olderMessages);
       const seen = new Set(historyState.turns.map(x => x.id));
       const fresh = extracted.filter(x => !seen.has(x.id));
       if (fresh.length) historyState.turns = [...fresh, ...historyState.turns];
-      const nextCursor = data?.page_info?.start_cursor || data?.messages?.[0]?.id || null;
-      historyState.cursor = nextCursor;
-      historyState.hasPrevious = Boolean(data?.page_info?.has_previous_page && nextCursor);
-      renderHistoryArchive();
+      list.forEach(message => { if (message?.id) historyState.seenIds.add(message.id); });
+      const olderTimes = olderMessages.map(message => Number(message?.create_time)).filter(Number.isFinite);
+      if (olderTimes.length) historyState.oldestCreateTime = Math.min(historyState.oldestCreateTime ?? Infinity, ...olderTimes);
+      historyState.serverTurns = nextTurns;
+      historyState.exhausted = olderMessages.length === 0;
+      if (historyState.turns.length) renderHistoryArchive();
     } catch (error) {
       console.debug('[ChatGPT Recent Messages] Manual older-history load failed:', error);
     } finally {
@@ -374,14 +429,10 @@
   function installTurboFetch() {
     if (!turboEnabled() || window.fetch?.__cgptRecentMessagesTurbo) return;
     const original = window.fetch.bind(window);
+    turboOriginalFetch = original;
     const wrapped = async (...incoming) => {
       const info = conversationFetchInfo(incoming[0], incoming[1]);
       if (info?.kind === 'flat-history') {
-        if (incoming[1]?.[HISTORY_MANUAL_FLAG]) {
-          const cleanInit = { ...incoming[1] };
-          delete cleanInit[HISTORY_MANUAL_FLAG];
-          return original(incoming[0], cleanInit);
-        }
         window.__cgptRecentMessagesBlockedHistory = (window.__cgptRecentMessagesBlockedHistory || 0) + 1;
         if (window.__cgptRecentMessagesTrimStats) window.__cgptRecentMessagesTrimStats.blockedHistoryPages = window.__cgptRecentMessagesBlockedHistory;
         return emptyFlatHistoryResponse();
@@ -390,6 +441,7 @@
       let args = incoming, requestStats = null;
       if (info?.kind === 'flat-main') {
         const capped = capFlatRequest(incoming, info);
+        captureFlatRequestContext(incoming[0], incoming[1], info, capped.networkTurns);
         args = capped.args;
         requestStats = { requestedTurns: capped.requestedTurns, networkTurns: capped.networkTurns };
         window.__cgptRecentMessagesTrimStats = null;
@@ -483,18 +535,19 @@
   function hidden(node, attr, value) { const old = node.getAttribute(attr) === 'true'; if (old === value) return; value ? node.setAttribute(attr, 'true') : node.removeAttribute(attr); }
   function spacer(node) { return node?.nodeType === 1 && node.tagName === 'DIV' && node.classList.contains('empty:hidden') && !(node.textContent || '').trim(); }
 
-  function restoreTools(container) { container.querySelectorAll(`:scope>.${TOOL_BUNDLE}`).forEach(x => x.remove()); container.querySelectorAll(`:scope>${TOOL_SELECTOR}`).forEach(x => hidden(x, TOOL_HIDDEN, false)); }
-  function setBundle(button, tools, expanded) { button.__members = tools; button.dataset.expanded = String(expanded); const label = t.bundle(tools.length, expanded); button.setAttribute('aria-label', label); button.querySelector('span').textContent = label; tools.forEach(x => hidden(x, TOOL_HIDDEN, !expanded)); }
+  function toolCount(node) { if (!node?.matches) return 0; return (node.matches(TOOL_SELECTOR) ? 1 : 0) + (node.querySelectorAll?.(TOOL_SELECTOR).length || 0); }
+  function restoreTools(container) { container.querySelectorAll(`:scope>.${TOOL_BUNDLE}`).forEach(x => x.remove()); container.querySelectorAll(`:scope>[${TOOL_HIDDEN}="true"]`).forEach(x => hidden(x, TOOL_HIDDEN, false)); }
+  function setBundle(button, tools, expanded) { button.__members = tools; button.dataset.expanded = String(expanded); const count = tools.reduce((sum, node) => sum + toolCount(node), 0); const label = t.bundle(count, expanded); button.setAttribute('aria-label', label); button.querySelector('span').textContent = label; tools.forEach(x => hidden(x, TOOL_HIDDEN, !expanded)); }
   function makeBundle(container, anchor) { const b = document.createElement('button'); b.type='button'; b.className=TOOL_BUNDLE; b.__anchor=anchor; b.innerHTML=`${icons.tools}<span></span><svg class="cgpt-tool-bundle-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg>`; b.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); const list=(b.__members||[]).filter(x=>x.isConnected&&x.parentElement===container); setBundle(b,list,b.dataset.expanded!=='true'); }); return b; }
   function compact(container) {
     if (!container?.isConnected) return; const observer=toolObservers.get(container); observer?.disconnect();
     try { if (!toolEnabled()) return restoreTools(container); const existing=[...container.querySelectorAll(`:scope>.${TOOL_BUNDLE}`)], byAnchor=new Map(existing.map(x=>[x.__anchor,x])), claimed=new Set(); let group=[];
       const flush=()=>{ if(!group.length)return; if(group.length<2){group.forEach(x=>hidden(x,TOOL_HIDDEN,false));group=[];return} const anchor=group[0]; let b=byAnchor.get(anchor); if(!b){b=makeBundle(container,anchor);container.insertBefore(b,anchor)} claimed.add(b);setBundle(b,group,b.dataset.expanded==='true');group=[] };
-      [...container.children].forEach(child=>{ if(child.classList?.contains(TOOL_BUNDLE))return; if(child.matches?.(TOOL_SELECTOR)){group.push(child);return} if(group.length&&spacer(child))return;flush() }); flush(); existing.forEach(x=>{if(!claimed.has(x))x.remove()});
-    } finally { if(observer&&container.isConnected) observer.observe(container,{childList:true}); }
+      [...container.children].forEach(child=>{ if(child.classList?.contains(TOOL_BUNDLE))return; if(toolCount(child)){group.push(child);return} if(group.length&&spacer(child))return;flush() }); flush(); existing.forEach(x=>{if(!claimed.has(x))x.remove()});
+    } finally { if(observer&&container.isConnected) observer.observe(container,{childList:true,subtree:true}); }
   }
   function toolContainers(list){const set=new Set();list.forEach(m=>m.querySelectorAll('[class~="agent-turn"] div.flex.flex-col.grow').forEach(x=>set.add(x)));return set}
-  function syncTools(list){const set=toolContainers(list);if(!toolEnabled()){stopTools();set.forEach(restoreTools);return}for(const [c,o] of toolObservers){if(c.isConnected&&set.has(c))continue;o.disconnect();toolObservers.delete(c)}for(const c of set){if(!toolObservers.has(c)){const o=new MutationObserver(()=>{clearTimeout(toolTimers.get(c));toolTimers.set(c,setTimeout(()=>{compact(c);updatePanel(messages().length)},180))});o.observe(c,{childList:true});toolObservers.set(c,o)}compact(c)}}
+  function syncTools(list){const set=toolContainers(list);if(!toolEnabled()){stopTools();set.forEach(restoreTools);return}for(const [c,o] of toolObservers){if(c.isConnected&&set.has(c))continue;o.disconnect();toolObservers.delete(c)}for(const c of set){if(!toolObservers.has(c)){const o=new MutationObserver(()=>{clearTimeout(toolTimers.get(c));toolTimers.set(c,setTimeout(()=>{compact(c);updatePanel(messages().length)},180))});o.observe(c,{childList:true,subtree:true});toolObservers.set(c,o)}compact(c)}}
   function stopTools(){toolObservers.forEach(o=>o.disconnect());toolObservers.clear();toolTimers.forEach(clearTimeout);toolTimers.clear();clearTimeout(toolUiTimer)}
 
   function findRoot(list){if(!list.length)return null;let r=list[0].parentElement;while(r&&!list.every(x=>r.contains(x)))r=r.parentElement;return r}
@@ -502,7 +555,7 @@
   function discover(){if(!document.body||listObserver)return;discoveryObserver?.disconnect();discoveryObserver=new MutationObserver(rs=>{hideWorkspaceLimitBanners();if(rs.some(r=>[...r.addedNodes].some(n=>n?.nodeType===1&&(n.matches?.(TURN_SELECTOR)||n.querySelector?.(TURN_SELECTOR))))){discoveryObserver.disconnect();scheduleUpdate(0)}});discoveryObserver.observe(document.body,{childList:true,subtree:true})}
   function setScroll(next){if(next===scrollRoot)return;scrollRoot?.removeEventListener('scroll',onScroll);scrollRoot=next;scrollRoot?.addEventListener('scroll',onScroll,{passive:true})}
   function apply(){const list=messages();if(!list.length){removePanel();listObserver?.disconnect();listObserver=null;stopTools();discover();return}const first=showAll?0:Math.max(0,list.length-visibleCount);list.forEach((x,i)=>hidden(x,HIDDEN,i<first));syncTools(list);ensurePanel();updatePanel(list.length);setScroll(document.querySelector(SCROLL_SELECTOR)||document.scrollingElement);bindList(list)}
-  async function revealOlder(allowRemote=false){const list=messages();if(!list.length)return;const first=showAll?0:Math.max(0,list.length-visibleCount);if(first){visibleCount=Math.min(list.length,visibleCount+LOAD_STEP);apply();return}if(!allowRemote||!turboEnabled())return;if(historyState.turns.length&&!document.getElementById(HISTORY_ARCHIVE_ID)){renderHistoryArchive();updatePanel(list.length);return}if(historyState.hasPrevious)await loadOlderHistory()}
+  async function revealOlder(allowRemote=false){const list=messages();if(!list.length)return;const first=showAll?0:Math.max(0,list.length-visibleCount);if(first){visibleCount=Math.min(list.length,visibleCount+LOAD_STEP);apply();return}if(!allowRemote||!turboEnabled())return;if(historyState.turns.length&&!document.getElementById(HISTORY_ARCHIVE_ID)){renderHistoryArchive();updatePanel(list.length);return}if(!historyState.exhausted)await loadOlderHistory()}
   function onScroll(){if(!scrollRoot||showAll)return;const top=scrollRoot.scrollTop;if(top>TOP_THRESHOLD_PX*2){topLoadArmed=true;return}if(topLoadArmed&&top<=TOP_THRESHOLD_PX){topLoadArmed=false;apply();revealOlder(false)}}
 
   function clearCollapse(){clearTimeout(collapseTimer);collapseTimer=null}
@@ -522,7 +575,7 @@
   function movePanelDrag(p,e){if(!dragState||e.pointerId!==dragState.pointerId)return;const dx=e.clientX-dragState.startX,dy=e.clientY-dragState.startY;if(!dragState.moved){if(Math.hypot(dx,dy)<PANEL_DRAG_THRESHOLD_PX)return;dragState.moved=true;setPeek(false);p.dataset.dragging='true';p.dataset.edge='';p.style.left=`${dragState.left}px`;p.style.top=`${dragState.top}px`;p.style.right='auto';p.style.bottom='auto';try{p.setPointerCapture(e.pointerId)}catch{}}e.preventDefault();const x=Math.min(Math.max(0,dragState.left+dx),Math.max(0,innerWidth-p.offsetWidth));const y=Math.min(Math.max(0,dragState.top+dy),Math.max(0,innerHeight-p.offsetHeight));p.style.left=`${Math.round(x)}px`;p.style.top=`${Math.round(y)}px`}
   function endPanelDrag(p,e){if(!dragState||e.pointerId!==dragState.pointerId)return;const moved=dragState.moved,wasCollapsed=dragState.collapsed;if(!moved){dragState=null;p.dataset.dragging='false';if(wasCollapsed){suppressPanelClickUntil=performance.now()+350;collapse(false);return}if(p.dataset.collapsed==='true'&&p.dataset.edge)schedulePeek();return}try{p.releasePointerCapture(e.pointerId)}catch{}p.dataset.dragging='false';const x=Number.parseFloat(p.style.left)||0,w=p.offsetWidth,rightGap=innerWidth-(x+w);p.dataset.edge=x<=PANEL_SNAP_PX?'left':rightGap<=PANEL_SNAP_PX?'right':'';dragState=null;suppressPanelClickUntil=performance.now()+350;if(p.dataset.edge)parkEdge(p,true);else{clampPanel(p,true);if(p.dataset.collapsed!=='true')scheduleCollapse()}}
   function ensurePanel(){if(document.getElementById(PANEL_ID)||!document.body)return;const p=document.createElement('div');p.id=PANEL_ID;p.dataset.collapsed='false';p.dataset.peek='false';p.dataset.edge='';p.dataset.dragging='false';p.innerHTML=`<span class="cgpt-rm-grip" title="${t.drag}" aria-label="${t.drag}">${icons.grip}</span><span class="cgpt-rm-status"></span><button data-action="older">${icons.older}</button><button data-action="toggle">${icons.all}</button><button data-action="reset">${icons.reset}</button><button data-action="turbo">${icons.turbo}</button><button data-action="tools">${icons.tools}</button><button data-action="panel">${icons.collapse}</button>`;p.addEventListener('click',e=>{const b=e.target.closest('button'),a=b?.dataset.action;if(a==='panel'){if(performance.now()<suppressPanelClickUntil){e.preventDefault();e.stopPropagation();b.blur();return}b.blur();return collapse(p.dataset.collapsed!=='true')}if(a==='older')revealOlder(true);else if(a==='toggle'){showAll=!showAll;if(!showAll)visibleCount=INITIAL_MESSAGES;apply()}else if(a==='reset'){showAll=false;visibleCount=INITIAL_MESSAGES;resetHistoryArchive();apply()}else if(a==='turbo'){setTurbo(!turboEnabled());location.reload();return}else if(a==='tools'){setTools(!toolEnabled());syncTools(messages());updatePanel(messages().length)}b?.blur();scheduleCollapse()});p.addEventListener('pointerdown',e=>startPanelDrag(p,e));p.addEventListener('pointermove',e=>{if(dragState)movePanelDrag(p,e);else{setPeek(false);scheduleCollapse();if(p.dataset.collapsed==='true'&&p.dataset.edge)schedulePeek()}});p.addEventListener('pointerup',e=>endPanelDrag(p,e));p.addEventListener('pointercancel',e=>endPanelDrag(p,e));p.addEventListener('pointerenter',()=>{setPeek(false);scheduleCollapse();if(p.dataset.collapsed==='true'&&p.dataset.edge)schedulePeek()});p.addEventListener('pointerleave',()=>{scheduleCollapse();schedulePeek()});p.addEventListener('focusin',()=>{setPeek(false);scheduleCollapse()});p.addEventListener('focusout',()=>{scheduleCollapse();schedulePeek()});p.addEventListener('keydown',scheduleCollapse);document.body.appendChild(p);restorePanelPosition(p);syncPanelToggle(p);scheduleCollapse()}
-  function updatePanel(total){const p=document.getElementById(PANEL_ID);if(!p)return;syncPanelToggle(p);const visible=showAll?total:Math.min(total,visibleCount);p.querySelector('.cgpt-rm-status').textContent=t.status(visible,total);const old=p.querySelector('[data-action="older"]'),nativeOlder=!showAll&&visible<total,archiveClosed=historyState.turns.length>0&&!document.getElementById(HISTORY_ARCHIVE_ID),remoteOlder=turboEnabled()&&(historyState.hasPrevious||archiveClosed);old.disabled=historyState.loading||(!nativeOlder&&!remoteOlder);label(old,historyState.loading?t.olderLoading:(archiveClosed?t.olderReopen:(!nativeOlder&&!remoteOlder?t.olderNone:t.older)));const toggle=p.querySelector('[data-action="toggle"]');label(toggle,showAll?t.recent:t.all);toggle.innerHTML=showAll?icons.recent:icons.all;label(p.querySelector('[data-action="reset"]'),t.reset);const turbo=p.querySelector('[data-action="turbo"]'),enabled=turboEnabled(),stats=window.__cgptRecentMessagesTrimStats;let tl=enabled?t.turboOn:t.turboOff;if(enabled&&stats?.beforeChars&&stats?.afterChars){tl+=` (${(stats.beforeChars/1e6).toFixed(2)} MB → ${(stats.afterChars/1e6).toFixed(2)} MB) · ${stats.retainedNodes} ${stats.flat?'messages':'nodes'}`;if(stats.flat&&stats.requestedTurns&&stats.networkTurns)tl+=` · API ${stats.requestedTurns}→${stats.networkTurns} turns`;if(stats.historyBlocked)tl+=` · auto history blocked`;if(stats.deep)tl+=` · deep ${stats.deepOriginalTurnNodes}→${stats.deepRetainedTurnNodes}`}label(turbo,tl);turbo.dataset.active=String(enabled);const tools=p.querySelector('[data-action="tools"]');label(tools,toolEnabled()?t.toolsOn:t.toolsOff);tools.dataset.active=String(toolEnabled())}
+  function updatePanel(total){const p=document.getElementById(PANEL_ID);if(!p)return;syncPanelToggle(p);const visible=showAll?total:Math.min(total,visibleCount);p.querySelector('.cgpt-rm-status').textContent=t.status(visible,total);const old=p.querySelector('[data-action="older"]'),nativeOlder=!showAll&&visible<total,archiveClosed=historyState.turns.length>0&&!document.getElementById(HISTORY_ARCHIVE_ID),remoteReady=turboEnabled()&&Boolean(historyState.conversationId&&historyState.requestHeaders&&turboOriginalFetch)&&!historyState.exhausted,remoteOlder=remoteReady||archiveClosed;old.disabled=historyState.loading||(!nativeOlder&&!remoteOlder);label(old,historyState.loading?t.olderLoading:(archiveClosed?t.olderReopen:(!nativeOlder&&!remoteOlder?t.olderNone:t.older)));const toggle=p.querySelector('[data-action="toggle"]');label(toggle,showAll?t.recent:t.all);toggle.innerHTML=showAll?icons.recent:icons.all;label(p.querySelector('[data-action="reset"]'),t.reset);const turbo=p.querySelector('[data-action="turbo"]'),enabled=turboEnabled(),stats=window.__cgptRecentMessagesTrimStats;let tl=enabled?t.turboOn:t.turboOff;if(enabled&&stats?.beforeChars&&stats?.afterChars){tl+=` (${(stats.beforeChars/1e6).toFixed(2)} MB → ${(stats.afterChars/1e6).toFixed(2)} MB) · ${stats.retainedNodes} ${stats.flat?'messages':'nodes'}`;if(stats.flat&&stats.requestedTurns&&stats.networkTurns)tl+=` · API ${stats.requestedTurns}→${stats.networkTurns} turns`;if(stats.historyBlocked)tl+=` · auto history blocked`;if(stats.deep)tl+=` · deep ${stats.deepOriginalTurnNodes}→${stats.deepRetainedTurnNodes}`}label(turbo,tl);turbo.dataset.active=String(enabled);const tools=p.querySelector('[data-action="tools"]');label(tools,toolEnabled()?t.toolsOn:t.toolsOff);tools.dataset.active=String(toolEnabled())}
   function removePanel(){clearCollapse();clearPeek();dragState=null;document.getElementById(PANEL_ID)?.remove()}
   function scheduleUpdate(delay=60){clearTimeout(updateTimer);updateTimer=setTimeout(apply,delay)}
 
