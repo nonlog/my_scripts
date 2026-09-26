@@ -2,13 +2,15 @@
 
 `chatgpt-recent-turns.user.js` reduces rendering work and client-side conversation-state overhead in very long ChatGPT Web conversations, especially Agent chats with many tool calls.
 
-### v0.8.4 behavior
+### v0.8.6 behavior
 
-- Shows the latest **5 currently materialized messages** by default.
-- Reveals **5 older messages** at a time when you scroll near the top.
+- Shows the latest **5 currently materialized conversation turns** by default on the current UI (with legacy message-row fallback support).
+- Reveals **5 older materialized turns** at a time when you scroll near the top.
 - Fixes the toolbar's older-message button under Turbo: after already-materialized hidden messages are exhausted, an explicit click widens ChatGPT's authenticated conversation request by **5 older server turns** and opens only the newly discovered older text in a lightweight read-only history panel instead of restoring the full tool-heavy React state.
 - Manual history loading reuses the in-memory authenticated request context from ChatGPT's own conversation fetch. It no longer trusts the capped response's has_previous_page flag and no longer sends an unauthenticated standalone history request. Automatic background history pagination remains blocked.
 - Uses a compact vertical icon toolbar with browser-language tooltips.
+- Restores the floating toolbar on the current ChatGPT app-shell UI by supporting the new `data-turn-key` turn containers and `data-app-action-timeline-scroll` scroll root while retaining the legacy selectors as fallbacks.
+- Restores project context in **Recents**: project conversations get a small project-name suffix derived from ChatGPT's live project ID/label rows, while non-project `/c/...` conversations remain unchanged.
 - After about **4 seconds of inactivity**, the toolbar collapses to one small round icon.
 - The expanded toolbar now also has a **manual collapse button**.
 - The expanded toolbar can be **dragged** using the grip at its top, and the **collapsed floating button can also be dragged directly**; its position is persisted in `localStorage`.
