@@ -1,0 +1,35 @@
+name: ChatGPT userscripts
+
+on:
+  push:
+    paths:
+      - 'chatgpt-*.user.js'
+      - 'chatgpt-*.meta.js'
+      - 'tests/chatgpt-*.test.cjs'
+      - '.github/workflows/chatgpt-userscripts.yml'
+  pull_request:
+    paths:
+      - 'chatgpt-*.user.js'
+      - 'chatgpt-*.meta.js'
+      - 'tests/chatgpt-*.test.cjs'
+      - '.github/workflows/chatgpt-userscripts.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax-check both userscripts
+        run: |
+          node --check chatgpt-recent-turns.user.js
+          node --check chatgpt-project-labels.user.js
+      - name: Verify project labels and script separation
+        run: node --test tests/chatgpt-project-labels.test.cjs

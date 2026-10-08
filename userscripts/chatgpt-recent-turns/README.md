@@ -2,7 +2,9 @@
 
 `chatgpt-recent-turns.user.js` reduces rendering work and client-side conversation-state overhead in very long ChatGPT Web conversations, especially Agent chats with many tool calls.
 
-### v0.8.6 behavior
+**Project names in Recents are maintained by a separate script**, [ChatGPT Project Labels](../chatgpt-project-labels/README.md). The existing ChatGPT Recent Messages ScriptCat installation keeps its original `@name` and `@namespace` for seamless updates, but v0.8.7 no longer includes project-label logic. Both scripts work independently.
+
+### v0.8.7 behavior
 
 - Shows the latest **5 currently materialized conversation turns** by default on the current UI (with legacy message-row fallback support).
 - Reveals **5 older materialized turns** at a time when you scroll near the top.
@@ -10,7 +12,6 @@
 - Manual history loading reuses the in-memory authenticated request context from ChatGPT's own conversation fetch. It no longer trusts the capped response's has_previous_page flag and no longer sends an unauthenticated standalone history request. Automatic background history pagination remains blocked.
 - Uses a compact vertical icon toolbar with browser-language tooltips.
 - Restores the floating toolbar on the current ChatGPT app-shell UI by supporting the new `data-turn-key` turn containers and `data-app-action-timeline-scroll` scroll root while retaining the legacy selectors as fallbacks.
-- Restores project context in **Recents**: project conversations get a small project-name suffix derived from ChatGPT's live project ID/label rows, while non-project `/c/...` conversations remain unchanged.
 - After about **4 seconds of inactivity**, the toolbar collapses to one small round icon.
 - The expanded toolbar now also has a **manual collapse button**.
 - The expanded toolbar can be **dragged** using the grip at its top, and the **collapsed floating button can also be dragged directly**; its position is persisted in `localStorage`.

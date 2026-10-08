@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ChatGPT Recent Messages
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      0.8.6
-// @description  Reduce long-chat rendering, tool-call layout, and client-state overhead in ChatGPT Web.
+// @version      0.8.7
+// @description  Compress long conversations and tool calls in ChatGPT Web. Project labels are now a separate userscript.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
 // @updateURL    https://raw.githubusercontent.com/nonlog/my_scripts/master/chatgpt-recent-turns.meta.js
@@ -17,7 +17,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '0.8.6';
+  const VERSION = '0.8.7';
   const INITIAL_MESSAGES = 5;
   const LOAD_STEP = 5;
   const TOP_THRESHOLD_PX = 220;
@@ -54,10 +54,6 @@
   const STYLE_ID = 'cgpt-recent-messages-style';
   const PANEL_POSITION_KEY = 'cgpt-recent-messages-panel-position-v1';
   const HISTORY_ARCHIVE_ID = 'cgpt-recent-history-archive';
-  const SIDEBAR_ID = 'app-shell-sidebar';
-  const PROJECT_LABEL_CLASS = 'cgpt-sidebar-project-label';
-  const PROJECT_LABEL_ATTR = 'data-cgpt-sidebar-project-label';
-  const PROJECT_PATH_RE = /^\/g\/(g-p-[0-9a-f]{32})(?:-[^/]*)?\/c\//i;
   const WORKSPACE_LIMIT_HIDDEN = 'data-cgpt-workspace-limit-hidden';
   const WORKSPACE_LIMIT_TITLE = 'A workspace member hit a limit';
   const WORKSPACE_LIMIT_DETAIL = 'Turn on auto-reload to automatically add credits and prevent future interruptions.';
@@ -83,10 +79,8 @@
   let visibleCount = INITIAL_MESSAGES, showAll = false, updateTimer = null, collapseTimer = null, peekTimer = null;
   let scrollRoot = null, listRoot = null, listObserver = null, discoveryObserver = null, topLoadArmed = true;
   let lastUrl = location.href, toolUiTimer = null, dragState = null, suppressPanelClickUntil = 0, workspaceLimitScanTimer = null;
-  let sidebarRoot = null, sidebarObserver = null, sidebarDiscoveryObserver = null, sidebarSyncTimer = null;
   let turboOriginalFetch = null;
   const toolObservers = new Map(), toolTimers = new Map();
-  const projectNameCache = new Map();
   const historyState = {
     conversationId: null, requestHeaders: null, requestCredentials: 'same-origin', requestCache: 'default', requestRedirect: 'follow', requestReferrerPolicy: '',
     initialServerTurns: TURBO_SERVER_TURNS, serverTurns: TURBO_SERVER_TURNS, initialSeenIds: new Set(), seenIds: new Set(),
@@ -523,77 +517,12 @@
     run();
   }
 
-  function projectIdFromHref(href) {
-    try { return new URL(href, location.href).pathname.match(PROJECT_PATH_RE)?.[1] || ''; }
-    catch { return ''; }
-  }
-
-  function projectNames(root) {
-    root?.querySelectorAll('[data-app-action-sidebar-project-id][data-app-action-sidebar-project-label]').forEach(row => {
-      const id = row.getAttribute('data-app-action-sidebar-project-id') || '', name = (row.getAttribute('data-app-action-sidebar-project-label') || '').trim();
-      if (id && name) projectNameCache.set(id, name);
-    });
-    const currentId = projectIdFromHref(location.href), breadcrumb = document.querySelector('nav[aria-label="Breadcrumb"] a[href*="/project"]');
-    const currentName = (breadcrumb?.textContent || '').trim();
-    if (currentId && currentName) projectNameCache.set(currentId, currentName);
-    return projectNameCache;
-  }
-
-  function syncProjectLabels() {
-    const root = sidebarRoot?.isConnected ? sidebarRoot : document.getElementById(SIDEBAR_ID);
-    if (!root) return;
-    const names = projectNames(root);
-    root.querySelectorAll('[data-sidebar-chatgpt-conversation-key] a[data-interactive-row-link][href]').forEach(link => {
-      const id = projectIdFromHref(link.getAttribute('href') || ''), name = names.get(id) || '';
-      let badge = link.querySelector(`.${PROJECT_LABEL_CLASS}`);
-      if (!name) { badge?.remove(); return; }
-      if (!badge) {
-        badge = document.createElement('span');
-        badge.className = PROJECT_LABEL_CLASS;
-        badge.setAttribute(PROJECT_LABEL_ATTR, 'true');
-        link.appendChild(badge);
-      }
-      if (badge.textContent !== name) badge.textContent = name;
-      badge.title = name;
-    });
-  }
-
-  function sidebarMutation(records) {
-    const marker = '[data-sidebar-chatgpt-conversation-key],[data-app-action-sidebar-project-id]';
-    return records.some(r => {
-      if (r.type === 'attributes') return r.target?.matches?.('a[data-interactive-row-link],[data-app-action-sidebar-project-id]');
-      if (r.target?.closest?.('a[data-interactive-row-link][href]')) return true;
-      return [...r.addedNodes, ...r.removedNodes].some(n => n?.nodeType === 1 && (n.matches?.(marker) || n.querySelector?.(marker)));
-    });
-  }
-
-  function scheduleSidebarSync(delay = 60) { clearTimeout(sidebarSyncTimer); sidebarSyncTimer = setTimeout(syncProjectLabels, delay); }
-
-  function bindSidebarLabels() {
-    const next = document.getElementById(SIDEBAR_ID);
-    if (next && next !== sidebarRoot) {
-      sidebarObserver?.disconnect();
-      sidebarRoot = next;
-      sidebarObserver = new MutationObserver(records => { if (sidebarMutation(records)) scheduleSidebarSync(); });
-      sidebarObserver.observe(next, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'data-app-action-sidebar-project-id', 'data-app-action-sidebar-project-label'] });
-    }
-    if (!sidebarDiscoveryObserver && document.body) {
-      sidebarDiscoveryObserver = new MutationObserver(records => {
-        if (sidebarRoot?.isConnected && !records.some(r => [...r.addedNodes].some(n => n?.nodeType === 1 && (n.id === SIDEBAR_ID || n.querySelector?.(`#${SIDEBAR_ID}`))))) return;
-        bindSidebarLabels();
-      });
-      sidebarDiscoveryObserver.observe(document.body, { childList: true, subtree: true });
-    }
-    scheduleSidebarSync(0);
-  }
-
   function ensureStyle() {
     if (document.getElementById(STYLE_ID)) return;
     const s = document.createElement('style'); s.id = STYLE_ID; s.textContent = `
       [${HIDDEN}="true"],[${TOOL_HIDDEN}="true"],[${WORKSPACE_LIMIT_HIDDEN}="true"]{display:none!important}
       .${TOOL_BUNDLE}{display:inline-flex;align-items:center;gap:6px;width:max-content;padding:5px 9px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:9px;background:transparent;color:var(--text-secondary,currentColor);cursor:pointer;font:inherit;font-size:.875em;opacity:.82}
       .${TOOL_BUNDLE}:hover{opacity:1}.cgpt-tool-bundle-chevron{transition:transform .12s ease}.${TOOL_BUNDLE}[data-expanded="true"] .cgpt-tool-bundle-chevron{transform:rotate(180deg)}
-      .${PROJECT_LABEL_CLASS}{align-self:center;flex:0 1 auto;max-width:46%;min-width:0;margin-inline-start:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-secondary,currentColor);font-size:11px;line-height:16px;opacity:.62;pointer-events:none}
       #${PANEL_ID}{position:fixed;right:14px;bottom:88px;z-index:2147483647;display:flex;flex-direction:column;align-items:center;gap:6px;padding:6px;border:1px solid color-mix(in srgb,CanvasText 16%,transparent);border-radius:12px;background:color-mix(in srgb,Canvas 94%,transparent);color:CanvasText;box-shadow:0 4px 18px rgba(0,0,0,.14);backdrop-filter:blur(10px);font:11px/1.2 system-ui,sans-serif;transition:transform .16s ease;touch-action:none}
       #${PANEL_ID} .cgpt-rm-grip{display:grid;place-items:center;width:30px;height:16px;opacity:.45;cursor:grab;touch-action:none}#${PANEL_ID} .cgpt-rm-grip:active{cursor:grabbing}#${PANEL_ID} .cgpt-rm-grip svg{width:16px;height:16px}#${PANEL_ID} .cgpt-rm-status{min-width:30px;padding:2px 3px;text-align:center;opacity:.68;white-space:nowrap}#${PANEL_ID} button{position:relative;display:grid;place-items:center;width:32px;height:32px;padding:0;border:1px solid color-mix(in srgb,CanvasText 16%,transparent);border-radius:9px;background:Canvas;color:CanvasText;cursor:pointer}#${PANEL_ID} button[data-active="true"]{box-shadow:inset 0 0 0 1px currentColor}#${PANEL_ID} svg,.${TOOL_BUNDLE} svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
       #${PANEL_ID}[data-collapsed="true"]{gap:0;padding:4px;border-radius:999px;cursor:grab}#${PANEL_ID}[data-collapsed="true"]>:not([data-action="panel"]){display:none!important}#${PANEL_ID}[data-collapsed="true"] [data-action="panel"]{display:grid;width:34px;height:34px;border-radius:999px;cursor:grab;touch-action:none}#${PANEL_ID}[data-dragging="true"]{transition:none!important;transform:none!important;cursor:grabbing}#${PANEL_ID}[data-dragging="true"] [data-action="panel"]{cursor:grabbing}#${PANEL_ID}[data-edge="left"][data-peek="true"]{transform:translateX(-55%)}#${PANEL_ID}[data-edge="right"][data-peek="true"]{transform:translateX(55%)}
@@ -663,8 +592,8 @@
   function removePanel(){clearCollapse();clearPeek();dragState=null;document.getElementById(PANEL_ID)?.remove()}
   function scheduleUpdate(delay=60){clearTimeout(updateTimer);updateTimer=setTimeout(apply,delay)}
 
-  function routeChange(){if(location.href===lastUrl)return;lastUrl=location.href;installTurboFetch();showAll=false;visibleCount=INITIAL_MESSAGES;resetHistoryState();scheduleWorkspaceLimitScan();listObserver?.disconnect();listObserver=null;listRoot=null;stopTools();setScroll(null);bindSidebarLabels();discover();scheduleUpdate(0)}
+  function routeChange(){if(location.href===lastUrl)return;lastUrl=location.href;installTurboFetch();showAll=false;visibleCount=INITIAL_MESSAGES;resetHistoryState();scheduleWorkspaceLimitScan();listObserver?.disconnect();listObserver=null;listRoot=null;stopTools();setScroll(null);discover();scheduleUpdate(0)}
   function installRoutes(){for(const method of ['pushState','replaceState']){const original=history[method];if(original.__cgptRecentMessagesWrapped)continue;const wrapped=function(...args){installTurboFetch();const result=original.apply(this,args);queueMicrotask(routeChange);return result};Object.defineProperty(wrapped,'__cgptRecentMessagesWrapped',{value:true});history[method]=wrapped}document.addEventListener('click',e=>{const a=e.target.closest?.('a[href]');if(!a)return;try{if(new URL(a.href,location.href).origin===location.origin&&/\/c\/[0-9a-f-]+$/i.test(new URL(a.href,location.href).pathname))installTurboFetch()}catch{}},true);window.addEventListener('popstate',()=>{installTurboFetch();queueMicrotask(routeChange)})}
-  function init(){ensureStyle();scheduleWorkspaceLimitScan();installRoutes();installTurboFetch();bindSidebarLabels();window.addEventListener('resize',()=>{const p=document.getElementById(PANEL_ID);if(!p)return;setPeek(false);requestAnimationFrame(()=>{clampPanel(p,true);if(p.dataset.edge)schedulePeek()})},{passive:true});discover();scheduleUpdate(0)}
+  function init(){ensureStyle();scheduleWorkspaceLimitScan();installRoutes();installTurboFetch();window.addEventListener('resize',()=>{const p=document.getElementById(PANEL_ID);if(!p)return;setPeek(false);requestAnimationFrame(()=>{clampPanel(p,true);if(p.dataset.edge)schedulePeek()})},{passive:true});discover();scheduleUpdate(0)}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();
