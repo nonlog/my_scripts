@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ChatGPT Recent Messages
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      0.8.6
-// @description  Reduce long-chat rendering, tool-call layout, and client-state overhead in ChatGPT Web.
+// @version      0.8.7
+// @description  Compress long conversations and tool calls in ChatGPT Web. Project labels are now a separate userscript.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
 // @updateURL    https://raw.githubusercontent.com/nonlog/my_scripts/master/chatgpt-recent-turns.meta.js
