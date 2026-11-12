@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Gemini Usage & Timeline
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      1.0.0
-// @description  在 Gemini Web 头像旁显示 5 小时限额与周限额，并提供 Codex Desktop 风格的侧边栏对话时间线导航。
+// @version      1.1.0
+// @description  Show 5-hour and weekly usage quotas beside the Gemini Web sidebar profile, plus a Codex-style right-side turn timeline.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
 // @updateURL    https://raw.githubusercontent.com/nonlog/my_scripts/master/gemini-usage-timeline.meta.js
@@ -17,8 +17,17 @@
   'use strict';
 
   if (window.top !== window.self) return;
-  if (document.documentElement?.hasAttribute('data-gxu-ut-mounted')) return;
-  document.documentElement?.setAttribute('data-gxu-ut-mounted', '1');
+
+  // Clean up any older DOM nodes if hot-reloaded in ScriptCat / Tampermonkey
+  for (const staleId of [
+    'gxu-usage-timeline-style',
+    'gxu-avatar-quota',
+    'gxu-quota-popover',
+    'gxu-timeline-rail',
+    'gxu-timeline-card',
+  ]) {
+    document.getElementById(staleId)?.remove?.();
+  }
 
   const ORIGIN = 'https://gemini.google.com';
   const GRAPHQL_PATH = '/_/BardChatUi/graphql/schemas/GEMINI_WEB_GRAPHQL/executeQuery';
@@ -219,9 +228,9 @@
   }
 
   function formatResetTime(resetAt, nowMs = Date.now(), kind = '5h') {
-    if (!Number.isFinite(resetAt)) return '重置时间未知';
+    if (!Number.isFinite(resetAt)) return 'Reset time unavailable';
     const diffMs = resetAt - nowMs;
-    if (diffMs <= 0) return '即将刷新';
+    if (diffMs <= 0) return 'Refreshing soon';
 
     const totalMinutes = Math.max(1, Math.ceil(diffMs / 60000));
     const days = Math.floor(totalMinutes / 1440);
@@ -233,14 +242,14 @@
     const mm = String(dt.getMinutes()).padStart(2, '0');
 
     if (kind === 'weekly' || days >= 1) {
-      const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+      const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
       const dayLabel = weekdays[dt.getDay()];
       const rel = days > 0 ? `${days}d ${hours}h` : `${hours}h ${mins}m`;
-      return `${rel} 后重置 · ${dayLabel} ${hh}:${mm}`;
+      return `Resets in ${rel} · ${dayLabel} ${hh}:${mm}`;
     }
 
     const rel = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-    return `${rel} 后重置 · ${hh}:${mm}`;
+    return `Resets in ${rel} · ${hh}:${mm}`;
   }
 
   function extractConversationKey(pathname = location.pathname) {
@@ -257,7 +266,7 @@
   }
 
   function cleanPromptLines(rawText) {
-    if (typeof rawText !== 'string') return { title: '[图片或附件]', body: '' };
+    if (typeof rawText !== 'string') return { title: '[Attachment]', body: '' };
     const stripped = rawText
       .replace(/^\s*(?:You said|你说|你說)\s*[:：]?\s*/i, '')
       .replace(/\r/g, '')
@@ -266,7 +275,7 @@
       .filter(Boolean);
 
     if (stripped.length === 0) {
-      return { title: '[图片或附件]', body: '' };
+      return { title: '[Attachment]', body: '' };
     }
 
     const first = stripped[0];
@@ -285,7 +294,7 @@
   }
 
   function extractTurnPrompt(turnEl) {
-    if (!turnEl) return { title: '[图片或附件]', body: '', raw: '' };
+    if (!turnEl) return { title: '[Attachment]', body: '', raw: '' };
     const queryLines = turnEl.querySelectorAll ? turnEl.querySelectorAll('.query-text-line') : [];
     if (queryLines && queryLines.length > 0) {
       const lines = Array.from(queryLines)
@@ -367,7 +376,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Stylesheet (Material 3 / Gemini Web + Codex Desktop Unified Styling)
+  // Stylesheet (Material 3 / Gemini Web + Right-Side Codex Timeline)
   // ---------------------------------------------------------------------------
 
   function ensureStyles() {
@@ -381,7 +390,6 @@
         --gxu-text-muted: #747775;
         --gxu-surface: rgba(255, 255, 255, 0.97);
         --gxu-surface-hover: rgba(68, 71, 70, 0.08);
-        --gxu-surface-pill: rgba(68, 71, 70, 0.055);
         --gxu-border: rgba(68, 71, 70, 0.13);
         --gxu-shadow: 0 8px 28px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.05);
         --gxu-track: rgba(68, 71, 70, 0.14);
@@ -401,7 +409,6 @@
         --gxu-text-muted: #8e918f;
         --gxu-surface: rgba(36, 38, 41, 0.97);
         --gxu-surface-hover: rgba(196, 199, 197, 0.10);
-        --gxu-surface-pill: rgba(196, 199, 197, 0.07);
         --gxu-border: rgba(255, 255, 255, 0.11);
         --gxu-shadow: 0 10px 32px rgba(0, 0, 0, 0.44), 0 2px 6px rgba(0, 0, 0, 0.24);
         --gxu-track: rgba(196, 199, 197, 0.18);
@@ -415,44 +422,38 @@
         --gxu-highlight-ring: rgba(168, 199, 250, 0.22);
       }
 
+      /* Flat, flush inline badge beside sidebar profile avatar (no covering card) */
       .gxu-avatar-quota {
         display: inline-flex;
         flex-direction: column;
         justify-content: center;
-        gap: 3px;
-        padding: 4px 8px;
-        margin-inline: auto 6px;
-        border-radius: 10px;
-        background: var(--gxu-surface-pill);
-        border: 1px solid transparent;
+        gap: 4px;
+        padding: 4px 7px;
+        margin-inline: 8px auto;
+        border-radius: 8px;
+        background: transparent;
+        border: none;
+        box-shadow: none;
         font-family: var(--gxu-font);
         font-variant-numeric: tabular-nums;
         cursor: pointer;
         user-select: none;
         flex: 0 0 auto;
-        min-width: 92px;
-        max-width: 120px;
+        width: 98px;
         box-sizing: border-box;
         align-self: center;
-        transition: background-color 150ms ease, border-color 150ms ease, opacity 150ms ease;
+        transition: background-color 140ms ease, opacity 140ms ease;
       }
 
       .gxu-avatar-quota:hover,
       .gxu-avatar-quota[data-open="true"] {
         background: var(--gxu-surface-hover);
-        border-color: var(--gxu-border);
       }
 
-      .gxu-avatar-quota[data-floating="true"] {
+      .gxu-avatar-quota[data-slot="fixed-gap"] {
         position: fixed;
-        bottom: 14px;
-        left: 74px;
         z-index: 950;
         margin: 0;
-        background: var(--gxu-surface);
-        border-color: var(--gxu-border);
-        box-shadow: var(--gxu-shadow);
-        backdrop-filter: blur(12px);
       }
 
       .gxu-avatar-quota[data-hidden="true"] {
@@ -461,22 +462,22 @@
 
       .gxu-quota-mini-row {
         display: grid;
-        grid-template-columns: 18px 1fr auto;
+        grid-template-columns: 16px 1fr auto;
         align-items: center;
         gap: 5px;
         line-height: 1;
       }
 
       .gxu-quota-mini-label {
-        font-size: 10px;
+        font-size: 10.5px;
         font-weight: 500;
         color: var(--gxu-text-secondary);
         letter-spacing: 0.01em;
       }
 
       .gxu-quota-mini-track {
-        height: 4px;
-        min-width: 28px;
+        height: 3.5px;
+        min-width: 26px;
         border-radius: 999px;
         background: var(--gxu-track);
         overflow: hidden;
@@ -505,20 +506,25 @@
 
       .gxu-quota-mini-val {
         font-size: 10.5px;
-        font-weight: 600;
-        color: var(--gxu-text-primary);
+        font-weight: 500;
+        color: var(--gxu-text-secondary);
         text-align: right;
         min-width: 24px;
       }
 
+      .gxu-avatar-quota:hover .gxu-quota-mini-val,
+      .gxu-avatar-quota[data-open="true"] .gxu-quota-mini-val {
+        color: var(--gxu-text-primary);
+      }
+
       .gxu-avatar-quota[data-loading="true"] .gxu-quota-mini-val {
-        opacity: 0.65;
+        opacity: 0.6;
       }
 
       .gxu-quota-popover {
         position: fixed;
         z-index: 2200;
-        width: 268px;
+        width: 272px;
         padding: 14px 15px;
         border-radius: 16px;
         background: var(--gxu-surface);
@@ -662,23 +668,24 @@
         color: var(--gxu-text-muted);
       }
 
-      /* Codex Desktop-Style Turn Timeline Rail */
+      /* Right-Side Codex Desktop-Style Turn Timeline Rail */
       .gxu-timeline-rail {
         position: fixed;
         top: 50%;
-        left: 292px;
+        right: 18px;
+        left: auto;
         transform: translateY(-50%);
         z-index: 940;
         display: flex;
         flex-direction: column;
-        align-items: flex-start;
+        align-items: flex-end;
         max-height: 64vh;
         overflow-y: auto;
         overflow-x: visible;
         scrollbar-width: none;
         padding: 6px 4px;
         user-select: none;
-        transition: left 180ms cubic-bezier(0.2, 0, 0, 1), opacity 160ms ease;
+        transition: right 180ms cubic-bezier(0.2, 0, 0, 1), opacity 160ms ease;
       }
 
       .gxu-timeline-rail::-webkit-scrollbar {
@@ -693,6 +700,7 @@
       .gxu-timeline-item {
         display: flex;
         align-items: center;
+        justify-content: flex-end;
         gap: 4px;
         width: 28px;
         height: var(--gxu-tick-row-h, 13px);
@@ -741,7 +749,7 @@
         transform: scale(1);
       }
 
-      /* Codex Desktop Hover Preview Card */
+      /* Codex Hover Preview Card (opens to the left of the right-side rail) */
       .gxu-timeline-card {
         position: fixed;
         z-index: 2150;
@@ -757,7 +765,7 @@
         color: var(--gxu-text-primary);
         cursor: pointer;
         opacity: 0;
-        transform: translateX(-4px) scale(0.985);
+        transform: translateX(4px) scale(0.985);
         pointer-events: none;
         transition: opacity 130ms ease, transform 130ms cubic-bezier(0.2, 0, 0, 1);
       }
@@ -1043,7 +1051,8 @@
         id: 'gxu-avatar-quota',
         role: 'button',
         tabindex: '0',
-        title: '查看 5 小时限额与周限额详情',
+        title: 'View 5-hour and weekly usage limits',
+        'data-hidden': 'true',
       },
       [
         h('div', { className: 'gxu-quota-mini-row', 'data-window': '5h' }, [
@@ -1052,7 +1061,7 @@
           mini5hVal,
         ]),
         h('div', { className: 'gxu-quota-mini-row', 'data-window': 'weekly' }, [
-          h('span', { className: 'gxu-quota-mini-label', textContent: '周' }),
+          h('span', { className: 'gxu-quota-mini-label', textContent: '7d' }),
           h('div', { className: 'gxu-quota-mini-track' }, [miniWkFill]),
           miniWkVal,
         ]),
@@ -1063,8 +1072,8 @@
       type: 'button',
       className: 'gxu-icon-btn',
       id: 'gxu-mode-btn',
-      title: '切换显示已用 / 剩余百分比',
-      textContent: '已用%',
+      title: 'Switch between Used % and Left %',
+      textContent: 'Used',
     });
 
     const refreshIcon = svg(
@@ -1091,7 +1100,7 @@
         type: 'button',
         className: 'gxu-icon-btn',
         id: 'gxu-refresh-btn',
-        title: '立即刷新限额',
+        title: 'Refresh usage limits',
       },
       [refreshIcon]
     );
@@ -1101,30 +1110,30 @@
       id: 'gxu-usage-link',
       target: '_blank',
       rel: 'noopener noreferrer',
-      title: '打开官方用量页',
+      title: 'Open Usage limits page',
       textContent: '↗',
     });
 
     const pop5hPct = h('span', { className: 'gxu-pop-pct', id: 'gxu-pop-5h-pct', textContent: '--%' });
     const pop5hFill = h('div', { className: 'gxu-pop-fill', id: 'gxu-pop-5h-fill' });
-    const pop5hSub = h('span', { id: 'gxu-pop-5h-sub', textContent: '加载中…' });
+    const pop5hSub = h('span', { id: 'gxu-pop-5h-sub', textContent: 'Loading…' });
     const pop5hRem = h('span', { id: 'gxu-pop-5h-rem', textContent: '' });
 
     const popWkPct = h('span', { className: 'gxu-pop-pct', id: 'gxu-pop-wk-pct', textContent: '--%' });
     const popWkFill = h('div', { className: 'gxu-pop-fill', id: 'gxu-pop-wk-fill' });
-    const popWkSub = h('span', { id: 'gxu-pop-wk-sub', textContent: '加载中…' });
+    const popWkSub = h('span', { id: 'gxu-pop-wk-sub', textContent: 'Loading…' });
     const popWkRem = h('span', { id: 'gxu-pop-wk-rem', textContent: '' });
 
-    const popUpdated = h('span', { id: 'gxu-pop-updated', textContent: '等待同步' });
+    const popUpdated = h('span', { id: 'gxu-pop-updated', textContent: 'Syncing…' });
 
     popoverEl = h('div', { className: 'gxu-quota-popover', id: 'gxu-quota-popover' }, [
       h('div', { className: 'gxu-pop-header' }, [
-        h('div', { className: 'gxu-pop-title', textContent: 'Gemini 用量限额' }),
+        h('div', { className: 'gxu-pop-title', textContent: 'Usage limits' }),
         h('div', { className: 'gxu-pop-actions' }, [modeBtn, refreshBtn, usageLink]),
       ]),
       h('div', { className: 'gxu-pop-section', 'data-window': '5h' }, [
         h('div', { className: 'gxu-pop-row' }, [
-          h('span', { className: 'gxu-pop-label', textContent: '5 小时限额' }),
+          h('span', { className: 'gxu-pop-label', textContent: '5-hour limit' }),
           pop5hPct,
         ]),
         h('div', { className: 'gxu-pop-track' }, [pop5hFill]),
@@ -1132,7 +1141,7 @@
       ]),
       h('div', { className: 'gxu-pop-section', 'data-window': 'weekly' }, [
         h('div', { className: 'gxu-pop-row' }, [
-          h('span', { className: 'gxu-pop-label', textContent: '周限额 (7天)' }),
+          h('span', { className: 'gxu-pop-label', textContent: 'Weekly limit' }),
           popWkPct,
         ]),
         h('div', { className: 'gxu-pop-track' }, [popWkFill]),
@@ -1140,7 +1149,7 @@
       ]),
       h('div', { className: 'gxu-pop-footer' }, [
         popUpdated,
-        h('span', { textContent: '回复完成后自动刷新' }),
+        h('span', { textContent: 'Auto-refreshes after replies' }),
       ]),
     ]);
 
@@ -1201,7 +1210,7 @@
   function positionPopover() {
     if (!badgeEl || !popoverEl || !popoverOpen) return;
     const rect = badgeEl.getBoundingClientRect();
-    const popW = 268;
+    const popW = 272;
     const popH = popoverEl.offsetHeight || 205;
     const left = Math.max(12, Math.min(rect.left, window.innerWidth - popW - 12));
     let top = rect.top - popH - 10;
@@ -1226,65 +1235,49 @@
     }
   }
 
-  function findSettingsGearButton(sidenav) {
-    if (!sidenav) return null;
-    const buttons = Array.from(sidenav.querySelectorAll('button, [role="button"]'));
+  function findSettingsGearButton() {
+    const scope = document.querySelector(SIDENAV_SELECTOR) || document;
+    const buttons = Array.from(scope.querySelectorAll('button, [role="button"]'));
     for (const btn of buttons) {
       const testId = (btn.getAttribute('data-test-id') || '').toLowerCase();
       const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
-      if (
+      const matchesAttr =
         testId.includes('settings') ||
         /settings|设置|設定/.test(aria) ||
-        btn.querySelector?.('mat-icon[fonticon="settings"], [data-mat-icon-name="settings"]')
-      ) {
-        return btn;
+        Boolean(btn.querySelector?.('mat-icon[fonticon="settings"], [data-mat-icon-name="settings"]'));
+      const iconEl = !matchesAttr
+        ? btn.querySelector?.('mat-icon, .google-symbols, .luminous-symbols, .material-symbols-rounded')
+        : null;
+      const matchesIcon = Boolean(iconEl && (iconEl.textContent || '').trim() === 'settings');
+
+      if (!matchesAttr && !matchesIcon) continue;
+      if (btn.getBoundingClientRect) {
+        const r = btn.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0 || r.left > 440) continue;
       }
-      const iconEl = btn.querySelector?.('mat-icon, .google-symbols, .luminous-symbols, .material-symbols-rounded');
-      if (iconEl && (iconEl.textContent || '').trim() === 'settings') {
-        return btn;
-      }
+      return btn;
     }
     return null;
   }
 
-  function isHorizontalFooterRow(parent, gearBranch) {
+  function isFlexHorizontalRow(parent) {
     const siblings = Array.from(parent.children || []).filter(
       (el) => el !== badgeEl && el.tagName !== 'STYLE'
     );
     if (siblings.length < 2) return false;
-
     try {
       const cs = getComputedStyle(parent);
-      if ((cs.display === 'flex' || cs.display === 'inline-flex') && !cs.flexDirection.startsWith('column')) {
-        return true;
-      }
-      if (cs.display === 'grid' || cs.display === 'inline-grid') {
-        return true;
-      }
+      return (cs.display === 'flex' || cs.display === 'inline-flex') && !cs.flexDirection.startsWith('column');
     } catch {
-      // Fall back to bounding-box check
+      return false;
     }
-
-    const other = siblings.find((el) => el !== gearBranch);
-    if (other?.getBoundingClientRect && gearBranch?.getBoundingClientRect) {
-      const r1 = other.getBoundingClientRect();
-      const r2 = gearBranch.getBoundingClientRect();
-      if (r1.width > 0 && r2.width > 0) {
-        const yDiff = Math.abs((r1.top + r1.height / 2) - (r2.top + r2.height / 2));
-        return yDiff < 28 && r1.left < r2.left;
-      }
-    }
-    return false;
   }
 
-  function findSidebarFooterAnchor(sidenav) {
-    const gear = findSettingsGearButton(sidenav);
-    if (!gear) return null;
-
+  function findSidebarFooterAnchor(gear, sidenav) {
     let branch = gear;
     let parent = gear.parentElement;
-    for (let depth = 0; depth < 5 && parent && parent !== sidenav; depth++) {
-      if (isHorizontalFooterRow(parent, branch)) {
+    for (let depth = 0; depth < 6 && parent && parent !== sidenav && parent !== document.body; depth++) {
+      if (isFlexHorizontalRow(parent, branch)) {
         return { container: parent, beforeNode: branch };
       }
       branch = parent;
@@ -1293,57 +1286,110 @@
     return null;
   }
 
+  function computeProfileRightEdge(root, gearRect) {
+    // Measure actual visible avatar icon & text glyph right edge to the left of the Settings gear
+    let maxRight = 88;
+    if (!root?.querySelectorAll) return maxRight;
+    const bandTop = gearRect.top - 26;
+    const bandBottom = gearRect.bottom + 26;
+
+    for (const media of root.querySelectorAll('img, svg')) {
+      if (badgeEl?.contains?.(media) || gearRect.left <= 0) continue;
+      const r = media.getBoundingClientRect?.();
+      if (r && r.width > 0 && r.height > 0 && r.top >= bandTop && r.bottom <= bandBottom && r.right < gearRect.left - 12) {
+        if (r.right > maxRight) maxRight = r.right;
+      }
+    }
+
+    if (typeof document.createTreeWalker === 'function' && typeof document.createRange === 'function') {
+      const walker = document.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
+      const range = document.createRange();
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (!node.textContent || !node.textContent.trim()) continue;
+        const parent = node.parentElement;
+        if (!parent || parent === badgeEl || badgeEl?.contains?.(parent)) continue;
+        range.selectNodeContents(node);
+        const r = range.getBoundingClientRect?.();
+        if (r && r.width > 0 && r.height > 0 && r.top >= bandTop && r.bottom <= bandBottom && r.right < gearRect.left - 8) {
+          if (r.right > maxRight) maxRight = r.right;
+        }
+      }
+    }
+    return maxRight;
+  }
+
   function mountQuotaWidget() {
     createQuotaDOM();
     if (document.body && popoverEl.parentElement !== document.body) {
       document.body.appendChild(popoverEl);
     }
 
-    const sidenav = document.querySelector(SIDENAV_SELECTOR);
-    if (sidenav) {
-      const rect = sidenav.getBoundingClientRect?.() || { width: 260, right: 260 };
-      const isExpanded = rect.width >= 180 && rect.right >= 180;
-      const anchor = isExpanded ? findSidebarFooterAnchor(sidenav) : null;
-
-      if (isExpanded && anchor && anchor.container) {
-        badgeEl.removeAttribute('data-floating');
-        badgeEl.removeAttribute('data-hidden');
-        badgeEl.style.removeProperty('left');
-        if (badgeEl.parentElement !== anchor.container || badgeEl.nextElementSibling !== anchor.beforeNode) {
-          anchor.container.insertBefore(badgeEl, anchor.beforeNode);
-        }
-        return;
-      }
-
-      badgeEl.setAttribute('data-floating', 'true');
-      badgeEl.removeAttribute('data-hidden');
-      const floatingLeft = isExpanded
-        ? Math.max(16, Math.round(rect.right - 136))
-        : rect.right > 20 && rect.width < 180
-          ? Math.round(rect.right + 10)
-          : 16;
-      badgeEl.style.left = `${floatingLeft}px`;
-      if (document.body && badgeEl.parentElement !== document.body) {
-        document.body.appendChild(badgeEl);
-      }
+    const gear = findSettingsGearButton();
+    if (!gear) {
+      badgeEl.setAttribute('data-hidden', 'true');
+      if (popoverOpen) togglePopover(false);
       return;
     }
 
-    const topAvatar = document.querySelector('a[href*="SignOutOptions"][aria-label], a[aria-label*="Google Account" i]');
-    const topWrapper = topAvatar?.parentElement?.parentElement || topAvatar?.parentElement;
-    if (topWrapper) {
-      badgeEl.removeAttribute('data-floating');
+    // Use the real rendered gear <button> position to know if sidebar is expanded (immune to 0x0 custom-element hosts)
+    const gearRect = gear.getBoundingClientRect?.() || { left: 224, right: 256, top: 850, bottom: 882, width: 32, height: 32 };
+    const isSidebarExpanded = gearRect.width > 0 && gearRect.right >= 165;
+
+    if (!isSidebarExpanded) {
+      badgeEl.setAttribute('data-hidden', 'true');
+      if (popoverOpen) togglePopover(false);
+      return;
+    }
+
+    const sidenav = document.querySelector(SIDENAV_SELECTOR);
+    const anchor = findSidebarFooterAnchor(gear, sidenav);
+
+    if (anchor && anchor.container) {
+      badgeEl.removeAttribute('data-slot');
       badgeEl.removeAttribute('data-hidden');
       badgeEl.style.removeProperty('left');
-      if (badgeEl.parentElement !== topWrapper) {
-        topWrapper.insertBefore(badgeEl, topWrapper.firstChild);
+      badgeEl.style.removeProperty('top');
+      if (badgeEl.parentElement !== anchor.container || badgeEl.nextElementSibling !== anchor.beforeNode) {
+        anchor.container.insertBefore(badgeEl, anchor.beforeNode);
+      }
+
+      // Verify flex insertion did not collide with the profile avatar/text or wrap out of row
+      const bRect = badgeEl.getBoundingClientRect?.();
+      const profileRight = computeProfileRightEdge(sidenav || anchor.container, gearRect);
+      if (
+        bRect &&
+        bRect.width > 0 &&
+        (bRect.left < profileRight - 2 ||
+          bRect.right > gearRect.left + 2 ||
+          Math.abs((bRect.top + bRect.height / 2) - (gearRect.top + gearRect.height / 2)) > 24)
+      ) {
+        placeInFooterGap(sidenav || document.body, gearRect);
       }
       return;
     }
 
+    // Fallback when footer uses non-flex positioning: place cleanly in the empty horizontal gap between avatar text and gear
+    placeInFooterGap(sidenav || document.body, gearRect);
+  }
+
+  function placeInFooterGap(scopeRoot, gearRect) {
+    const profileRight = computeProfileRightEdge(scopeRoot, gearRect);
+    const badgeWidth = 98;
+    const minLeft = Math.round(profileRight + 10);
+    const maxLeft = Math.round(gearRect.left - badgeWidth - 6);
+    if (maxLeft < 72) {
+      badgeEl.setAttribute('data-hidden', 'true');
+      return;
+    }
+    const left = Math.min(maxLeft, Math.max(76, minLeft));
+    const top = Math.round(gearRect.top + gearRect.height / 2 - 16);
+
+    badgeEl.setAttribute('data-slot', 'fixed-gap');
+    badgeEl.removeAttribute('data-hidden');
+    badgeEl.style.left = `${left}px`;
+    badgeEl.style.top = `${top}px`;
     if (document.body && badgeEl.parentElement !== document.body) {
-      badgeEl.setAttribute('data-floating', 'true');
-      badgeEl.style.left = '16px';
       document.body.appendChild(badgeEl);
     }
   }
@@ -1352,9 +1398,9 @@
     if (!win) {
       refs.miniVal.textContent = '--%';
       refs.miniFill.style.width = '0%';
-      refs.popPct.textContent = '不可用';
+      refs.popPct.textContent = 'Unavailable';
       refs.popFill.style.width = '0%';
-      refs.popSub.textContent = '暂无此窗口限额数据';
+      refs.popSub.textContent = 'No quota data reported';
       refs.popRem.textContent = '';
       return;
     }
@@ -1367,24 +1413,24 @@
     refs.miniFill.setAttribute('data-level', level);
 
     refs.popPct.textContent = displayMode === 'remaining'
-      ? `剩余 ${win.remainingPct}%`
-      : `已用 ${win.usedPct}%`;
+      ? `${win.remainingPct}% left`
+      : `${win.usedPct}% used`;
     refs.popFill.style.width = `${shownPct}%`;
     refs.popFill.setAttribute('data-level', level);
     refs.popSub.textContent = formatResetTime(win.resetAt, Date.now(), kind);
     refs.popRem.textContent = displayMode === 'remaining'
-      ? `已用 ${win.usedPct}%`
-      : `剩余 ${win.remainingPct}%`;
+      ? `${win.usedPct}% used`
+      : `${win.remainingPct}% left`;
   }
 
   function renderQuotaUI() {
     if (!badgeEl || !popoverEl) return;
-    uiRefs.modeBtn.textContent = displayMode === 'remaining' ? '剩余%' : '已用%';
+    uiRefs.modeBtn.textContent = displayMode === 'remaining' ? 'Left %' : 'Used %';
 
     if (!currentQuota || !currentQuota.ok) {
       const isSignedOut = currentQuota?.reason === 'signed_out';
-      const label = isSignedOut ? '未登录' : '--%';
-      const sub = isSignedOut ? '请先登录 Gemini 账号' : '点击右上角刷新或打开官方用量页';
+      const label = isSignedOut ? 'Auth' : '--%';
+      const sub = isSignedOut ? 'Please sign in to Gemini' : 'Click refresh or open Usage limits';
       uiRefs.mini5hVal.textContent = label;
       uiRefs.miniWkVal.textContent = label;
       uiRefs.pop5hSub.textContent = sub;
@@ -1422,12 +1468,12 @@
       const dt = new Date(currentQuota.fetchedAt);
       const hh = String(dt.getHours()).padStart(2, '0');
       const mm = String(dt.getMinutes()).padStart(2, '0');
-      uiRefs.popUpdated.textContent = `更新于 ${hh}:${mm}`;
+      uiRefs.popUpdated.textContent = `Updated ${hh}:${mm}`;
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Codex Desktop-Style Sidebar Turn Timeline
+  // Right-Side Codex Desktop-Style Turn Timeline
   // ---------------------------------------------------------------------------
 
   let railEl = null;
@@ -1446,7 +1492,7 @@
     railEl = h('nav', {
       className: 'gxu-timeline-rail',
       id: 'gxu-timeline-rail',
-      'aria-label': '对话时间线导航',
+      'aria-label': 'Conversation timeline',
       'data-hidden': 'true',
     });
 
@@ -1473,7 +1519,7 @@
         type: 'button',
         className: 'gxu-tc-bookmark',
         id: 'gxu-tc-bookmark',
-        title: '收藏/标记此轮对话',
+        title: 'Bookmark turn',
       },
       [bookmarkSvg]
     );
@@ -1574,12 +1620,13 @@
     cardEl.setAttribute('data-open', 'true');
 
     const itemRect = itemEl.getBoundingClientRect();
+    const cardW = cardEl.offsetWidth || 292;
     const cardH = cardEl.offsetHeight || 96;
-    const left = Math.min(window.innerWidth - 308, Math.round(itemRect.right + 8));
+    const left = Math.max(14, Math.min(window.innerWidth - cardW - 14, Math.round(itemRect.left - cardW - 10)));
     const rawTop = itemRect.top + itemRect.height / 2 - cardH / 2;
     const top = Math.max(14, Math.min(window.innerHeight - cardH - 14, Math.round(rawTop)));
 
-    cardEl.style.left = `${Math.max(14, left)}px`;
+    cardEl.style.left = `${left}px`;
     cardEl.style.top = `${top}px`;
   }
 
@@ -1693,16 +1740,16 @@
 
   function updateTimelinePosition() {
     if (!railEl) return;
-    const sidenav = document.querySelector(SIDENAV_SELECTOR);
-    let sidebarRight = 0;
-    if (sidenav?.getBoundingClientRect) {
-      const r = sidenav.getBoundingClientRect();
-      if (r.width > 0 && r.right > 0 && r.left < 60 && r.width < window.innerWidth * 0.55) {
-        sidebarRight = r.right;
+    let rightOffset = 18;
+    if (boundScroller?.getBoundingClientRect) {
+      const r = boundScroller.getBoundingClientRect();
+      if (r.width > 200 && r.right > 0 && r.right <= window.innerWidth) {
+        const rightPaneGap = Math.max(0, window.innerWidth - r.right);
+        rightOffset = Math.round(rightPaneGap + 16);
       }
     }
-    const left = Math.max(12, Math.round(sidebarRight + 14));
-    railEl.style.left = `${left}px`;
+    railEl.style.right = `${Math.max(14, rightOffset)}px`;
+    railEl.style.left = 'auto';
   }
 
   function syncTimeline() {
@@ -1757,8 +1804,8 @@
             'data-bookmarked': bookmarks.has(turn.id) ? 'true' : 'false',
           },
           [
-            h('span', { className: 'gxu-timeline-tick' }),
             h('span', { className: 'gxu-timeline-dot' }),
+            h('span', { className: 'gxu-timeline-tick' }),
           ]
         );
         item.addEventListener('mouseenter', () => showPreviewCard(idx, item));

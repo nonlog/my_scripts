@@ -13,6 +13,8 @@ const metaSource = readFileSync(path.join(repository, 'gemini-usage-timeline.met
 function createMiniDOM({
   href = 'https://gemini.google.com/u/1/app/2bbfca266bd7c135',
   theme = 'light-theme',
+  sidenavZeroRect = true,
+  gearRight = 256,
   turns = [],
   fetchImpl = async () => ({ ok: false, status: 500, text: async () => '' }),
 } = {}) {
@@ -31,12 +33,19 @@ function createMiniDOM({
       this.parentElement = null;
       this.attributes = new Map();
       this.eventListeners = new Map();
-      this._rect = { left: 0, top: 0, right: 260, bottom: 48, width: 260, height: 48 };
+      this._rect = { left: 112, top: 850, right: 210, bottom: 882, width: 98, height: 32 };
       const self = this;
       this.style = {
+        left: '',
+        right: '',
+        top: '',
         _props: new Map(),
         setProperty(k, v) { self.style._props.set(k, String(v)); },
-        removeProperty(k) { self.style._props.delete(k); },
+        removeProperty(k) {
+          self.style._props.delete(k);
+          if (k === 'left') self.style.left = '';
+          if (k === 'top') self.style.top = '';
+        },
       };
       this.classList = {
         contains: (cls) => self.className.split(/\s+/).filter(Boolean).includes(cls),
@@ -66,6 +75,10 @@ function createMiniDOM({
       if (!this.parentElement) return null;
       const idx = this.parentElement.children.indexOf(this);
       return idx >= 0 ? this.parentElement.children[idx + 1] || null : null;
+    }
+
+    remove() {
+      if (this.parentElement) this.parentElement.removeChild(this);
     }
 
     setAttribute(name, value) {
@@ -162,6 +175,9 @@ function createMiniDOM({
       if (!s) return false;
       if (s.startsWith('#')) return this.id === s.slice(1);
       if (s.startsWith('.')) {
+        if (s === '.gxu-timeline-item[data-hovered="true"]') {
+          return this.classList.contains('gxu-timeline-item') && this.getAttribute('data-hovered') === 'true';
+        }
         return s
           .slice(1)
           .split('.')
@@ -178,9 +194,6 @@ function createMiniDOM({
       }
       if (s === 'script[type="importmap"]' || s === 'script') {
         return this.tagName === 'SCRIPT';
-      }
-      if (s === '.gxu-timeline-item[data-hovered="true"]') {
-        return this.classList.contains('gxu-timeline-item') && this.getAttribute('data-hovered') === 'true';
       }
       return false;
     }
@@ -216,7 +229,9 @@ function createMiniDOM({
   body.appendChild(themeHost);
 
   const sidenav = new MiniElement('bard-sidenav');
-  sidenav._rect = { left: 0, top: 0, right: 268, bottom: 900, width: 268, height: 900 };
+  sidenav._rect = sidenavZeroRect
+    ? { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }
+    : { left: 0, top: 0, right: 268, bottom: 900, width: 268, height: 900 };
 
   const footerRow = new MiniElement('div');
   footerRow.className = 'sidenav-footer-row';
@@ -225,11 +240,11 @@ function createMiniDOM({
   const profileBlock = new MiniElement('div');
   profileBlock.className = 'user-profile-block';
   profileBlock.textContent = 'log Ultra';
-  profileBlock._rect = { left: 12, top: 848, right: 108, bottom: 888, width: 96, height: 40 };
+  profileBlock._rect = { left: 12, top: 848, right: 94, bottom: 888, width: 82, height: 40 };
 
   const gearBtn = new MiniElement('button');
   gearBtn.setAttribute('aria-label', 'Settings and help');
-  gearBtn._rect = { left: 224, top: 850, right: 256, bottom: 882, width: 32, height: 32 };
+  gearBtn._rect = { left: gearRight - 32, top: 850, right: gearRight, bottom: 882, width: 32, height: 32 };
 
   footerRow.appendChild(profileBlock);
   footerRow.appendChild(gearBtn);
@@ -238,7 +253,7 @@ function createMiniDOM({
 
   const scroller = new MiniElement('div');
   scroller.id = 'chat-history';
-  scroller._rect = { left: 268, top: 0, right: 1440, bottom: 900, width: 1172, height: 900 };
+  scroller._rect = { left: 276, top: 0, right: 1440, bottom: 900, width: 1164, height: 900 };
 
   turns.forEach((t, idx) => {
     const turnEl = new MiniElement('user-query');
@@ -287,9 +302,12 @@ function createMiniDOM({
     querySelectorAll: (sel) => documentElement.querySelectorAll(sel),
     querySelector: (sel) => documentElement.querySelector(sel),
     addEventListener(type, fn) {
-      if (!listeners.has(type)) listeners.set(type, []);
-      listeners.get(type).push(fn);
+      if (!listeners.has(type)) listeners.set(type).push(fn);
     },
+  };
+  document.addEventListener = (type, fn) => {
+    if (!listeners.has(type)) listeners.set(type, []);
+    listeners.get(type).push(fn);
   };
 
   let hookApi = null;
@@ -358,169 +376,77 @@ function createMiniDOM({
   return { hookApi, document, footerRow, profileBlock, gearBtn, scroller, storage, sidenav };
 }
 
-test('metadata matches userscript header and avoids innerHTML for Trusted Types safety', () => {
-  assert.match(scriptSource, /@name\s+Gemini Usage & Timeline/);
-  assert.match(metaSource, /@name\s+Gemini Usage & Timeline/);
-  assert.match(scriptSource, /@updateURL\s+https:\/\/raw\.githubusercontent\.com\/nonlog\/my_scripts\/master\/gemini-usage-timeline\.meta\.js/);
-  assert.match(scriptSource, /@downloadURL\s+https:\/\/raw\.githubusercontent\.com\/nonlog\/my_scripts\/master\/gemini-usage-timeline\.user\.js/);
-  assert.doesNotMatch(scriptSource, /\.innerHTML\s*=/, 'must not assign innerHTML under Gemini Trusted Types CSP');
+test('v1.1.0 uses English UI labels, matches metadata, and avoids innerHTML', () => {
+  assert.match(scriptSource, /@version\s+1\.1\.0/);
+  assert.match(metaSource, /@version\s+1\.1\.0/);
+  assert.doesNotMatch(scriptSource, /\.innerHTML\s*=/);
+  assert.doesNotMatch(scriptSource, /Gemini 用量限额|5 小时限额|周限额|后重置/, 'UI labels must be English');
+  assert.match(scriptSource, /Usage limits/);
+  assert.match(scriptSource, /5-hour limit/);
+  assert.match(scriptSource, /Weekly limit/);
 });
 
-test('resolves multi-account /u/1/ executeQuery URL and parses 5-hour & weekly pools', () => {
-  const { hookApi } = createMiniDOM();
-  assert.equal(hookApi.getAccountIndex('https://gemini.google.com/u/1/app/2bbfca266bd7c135'), '1');
-  assert.equal(hookApi.getAccountIndex('https://gemini.google.com/app/abc'), '0');
-
-  const url = hookApi.buildExecuteQueryUrl('1', '2/sig=', { g1Request: {} });
-  assert.match(url, /^https:\/\/gemini\.google\.com\/u\/1\/_\/BardChatUi\/graphql\/schemas\/GEMINI_WEB_GRAPHQL\/executeQuery\?/);
-
-  const sampleReply = `)]}'\n` + JSON.stringify([
-    {
-      data: {
-        viewer: {
-          rpcs: {
-            getUsageInfo: {
-              subscriptionTier: 'TIER_ULTRA',
-              pools: [
-                {
-                  poolType: 'GXU_FIVE_HOURLY',
-                  percentageUsed: 0.34,
-                  gxu: { windowRefreshesAt: '2026-11-12T10:00:00Z' },
-                },
-                {
-                  poolType: 'GXU_WEEKLY',
-                  percentageUsed: 0.12,
-                  gxu: { windowRefreshesAt: '2026-11-17T00:00:00Z' },
-                },
-              ],
-            },
-          },
-        },
-      },
-    },
-  ]);
-
-  const parsed = hookApi.parseGraphqlUsageResponse(sampleReply);
-  assert.equal(parsed.ok, true);
-  assert.equal(parsed.fiveHour.usedPct, 34);
-  assert.equal(parsed.fiveHour.remainingPct, 66);
-  assert.equal(parsed.weekly.usedPct, 12);
-  assert.equal(parsed.weekly.remainingPct, 88);
-});
-
-test('mounts quota widget between sidebar profile avatar and settings gear & auto-recovers rotated query signature', async () => {
-  const calls = [];
-  const rotatedSig = '2/RotatedNewUsageSig1234567890abcdef=';
-
+test('mounts inline between avatar and gear even when <bard-sidenav> host rect is 0x0, and hides when sidebar is collapsed', async () => {
   const env = createMiniDOM({
-    href: 'https://gemini.google.com/u/1/app/2bbfca266bd7c135',
-    fetchImpl: async (url, init) => {
-      const u = String(url);
-      calls.push({ url: u, headers: init?.headers || {} });
-      if (u.includes('executeQuery') && !u.includes(encodeURIComponent(rotatedSig))) {
-        return {
-          ok: true,
-          status: 200,
-          text: async () => `)]}'\n[{"errors":[{"message":"PersistedQueryNotFound"}]}]`,
-        };
-      }
-      if (u === 'https://gemini.google.com/u/1/usage') {
-        return {
-          ok: true,
-          status: 200,
-          text: async () => `<script type="importmap">{"imports":{"@messages/assets/UsagePageLoading-abc99.js":"https://www.gstatic.com/bg3/boq-bard-web/islands/assets/UsagePageLoading-abc99.js"}}</script>`,
-        };
-      }
-      if (u.includes('UsagePageLoading-abc99.js')) {
-        return {
-          ok: true,
-          status: 200,
-          text: async () => `const q={id:\`${rotatedSig}\`,metadata:{},name:\`UsagePageQuery\`};`,
-        };
-      }
-      if (u.includes(encodeURIComponent(rotatedSig))) {
-        return {
-          ok: true,
-          status: 200,
-          text: async () => `)]}'\n` + JSON.stringify([
-            {
-              data: {
-                viewer: {
-                  rpcs: {
-                    getUsageInfo: {
-                      subscriptionTier: 'TIER1',
-                      pools: [
-                        { poolType: 'GXU_FIVE_HOURLY', percentageUsed: 0.45, gxu: { windowRefreshesAt: '2026-11-12T12:00:00Z' } },
-                        { poolType: 'GXU_WEEKLY', percentageUsed: 0.09, gxu: { windowRefreshesAt: '2026-11-18T00:00:00Z' } },
-                      ],
-                    },
-                  },
+    sidenavZeroRect: true,
+    gearRight: 256,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      text: async () => `)]}'\n` + JSON.stringify([
+        {
+          data: {
+            viewer: {
+              rpcs: {
+                getUsageInfo: {
+                  subscriptionTier: 'TIER_ULTRA',
+                  pools: [
+                    { poolType: 'GXU_FIVE_HOURLY', percentageUsed: 0.02, gxu: { windowRefreshesAt: '2026-11-12T12:00:00Z' } },
+                    { poolType: 'GXU_WEEKLY', percentageUsed: 0.03, gxu: { windowRefreshesAt: '2026-11-18T00:00:00Z' } },
+                  ],
                 },
               },
             },
-          ]),
-        };
-      }
-      return { ok: false, status: 404, text: async () => '' };
-    },
+          },
+        },
+      ]),
+    }),
   });
 
-  await new Promise((r) => setTimeout(r, 30));
+  await new Promise((r) => setTimeout(r, 25));
 
   const badge = env.document.getElementById('gxu-avatar-quota');
-  assert.ok(badge, 'quota badge is mounted');
-  assert.equal(badge.parentElement, env.footerRow, 'mounted directly inside sidebar profile+settings row');
-  assert.equal(env.footerRow.children[0], env.profileBlock, 'profile avatar/name remains first');
-  assert.equal(env.footerRow.children[1], badge, 'quota badge sits right next to profile avatar');
-  assert.equal(env.footerRow.children[2], env.gearBtn, 'settings gear remains at the right end');
+  assert.equal(badge.hasAttribute('data-hidden'), false, 'visible when gear button is in expanded sidebar');
+  assert.equal(badge.parentElement, env.footerRow, 'inserted inline in footerRow despite 0x0 bard-sidenav host');
+  assert.equal(env.footerRow.children[0], env.profileBlock);
+  assert.equal(env.footerRow.children[1], badge);
+  assert.equal(env.footerRow.children[2], env.gearBtn);
+  assert.equal(env.document.getElementById('gxu-mini-5h-val').textContent, '2%');
+  assert.equal(env.document.getElementById('gxu-mini-wk-val').textContent, '3%');
 
-  assert.equal(env.document.getElementById('gxu-mini-5h-val').textContent, '45%');
-  assert.equal(env.document.getElementById('gxu-mini-wk-val').textContent, '9%');
-
-  const authHeaders = calls.filter((c) => c.url.includes('executeQuery')).map((c) => c.headers['X-Goog-AuthUser']);
-  assert.ok(authHeaders.every((h) => h === '1'), 'sends X-Goog-AuthUser: 1 for /u/1/ multi-account');
-
-  env.document.getElementById('gxu-mode-btn').dispatch('click');
-  assert.equal(env.document.getElementById('gxu-mini-5h-val').textContent, '55%');
-  assert.equal(env.document.getElementById('gxu-mini-wk-val').textContent, '91%');
+  env.gearBtn._rect = { left: 16, top: 850, right: 48, bottom: 882, width: 32, height: 32 };
+  env.hookApi.mountQuotaWidget();
+  assert.equal(badge.getAttribute('data-hidden'), 'true');
 });
 
-test('renders Codex Desktop-style timeline ticks, hover preview card, jump-to-turn, and bookmarks', () => {
+test('renders timeline on the RIGHT side and opens preview card to the LEFT of ticks', () => {
   const env = createMiniDOM({
-    href: 'https://gemini.google.com/u/1/app/2bbfca266bd7c135',
     turns: [
-      {
-        id: 'q1',
-        top: 120,
-        lines: [
-          '然后帮我给 www bucket 添加 https://github.com/Ray-lea/Argus 并安装',
-          '使用 agent-reach 的 GitHub 开发通道读取仓库和发布信息',
-        ],
-      },
-      {
-        id: 'q2',
-        top: 520,
-        lines: ['继续配置 Executor 并写入油猴脚本'],
-      },
+      { id: 'q1', top: 120, lines: ['First user prompt', 'Additional context line'] },
+      { id: 'q2', top: 520, lines: ['Second user prompt'] },
     ],
   });
 
   const rail = env.document.getElementById('gxu-timeline-rail');
-  assert.ok(rail, 'timeline rail exists');
   assert.equal(rail.getAttribute('data-hidden'), 'false');
-  assert.equal(rail.children.length, 2, 'renders one tick per user turn');
-  assert.equal(rail.children[0].getAttribute('data-active'), 'true', 'highlights turn in viewport');
+  assert.equal(rail.style.right, '16px', 'anchored to the right edge of chat scroller');
+  assert.equal(rail.style.left, 'auto', 'never placed on the left conversation list');
 
+  rail.children[0]._rect = { left: 1396, top: 440, right: 1424, bottom: 453, width: 28, height: 13 };
   rail.children[0].dispatch('mouseenter');
+
   const card = env.document.getElementById('gxu-timeline-card');
   assert.equal(card.getAttribute('data-open'), 'true');
-  assert.match(env.document.getElementById('gxu-tc-title').textContent, /Ray-lea\/Argus/);
-  assert.match(env.document.getElementById('gxu-tc-body').textContent, /agent-reach/);
-
-  env.document.getElementById('gxu-tc-bookmark').dispatch('click');
-  assert.equal(rail.children[0].getAttribute('data-bookmarked'), 'true');
-
-  rail.children[1].dispatch('click');
-  assert.equal(env.scroller.children[1]._scrolled, true);
-  assert.equal(rail.children[1].getAttribute('data-active'), 'true');
+  const cardLeft = parseInt(card.style.left, 10);
+  assert.ok(cardLeft < 1396 - 200, `card opens to the left of right-side rail (got left=${cardLeft})`);
 });

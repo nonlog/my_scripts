@@ -17,13 +17,13 @@ To use both features, update Recent Messages to v0.8.7 and separately install Pr
 
 | Function | Userscript | Install / update | Documentation |
 | --- | --- | --- | --- |
-| Show 5-hour & weekly usage quotas beside profile avatar + Codex Desktop-style turn timeline | **Gemini Usage & Timeline** (v1.0.0) | [Install](https://raw.githubusercontent.com/nonlog/my_scripts/master/gemini-usage-timeline.user.js) | [Usage & Timeline](userscripts/gemini-usage-timeline/README.md) |
+| Show 5-hour & weekly usage quotas beside profile avatar + right-side turn timeline | **Gemini Usage & Timeline** (v1.1.0) | [Install](https://raw.githubusercontent.com/nonlog/my_scripts/master/gemini-usage-timeline.user.js) | [Usage & Timeline](userscripts/gemini-usage-timeline/README.md) |
 
 ## Repository layout
 
 - `chatgpt-recent-turns.user.js` / `.meta.js` — conversation compression and Turbo
 - `chatgpt-project-labels.user.js` / `.meta.js` — project suffixes in Recents
-- `gemini-usage-timeline.user.js` / `.meta.js` — Gemini Web 5h/weekly usage quotas and Codex-style turn timeline
+- `gemini-usage-timeline.user.js` / `.meta.js` — Gemini Web 5h/weekly usage quotas and right-side turn timeline
 - `userscripts/chatgpt-recent-turns/README.md` — compression documentation
 - `userscripts/chatgpt-project-labels/README.md` — project-label documentation
 - `userscripts/gemini-usage-timeline/README.md` — Gemini usage & timeline documentation
