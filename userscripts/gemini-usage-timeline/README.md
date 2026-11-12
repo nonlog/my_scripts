@@ -17,7 +17,7 @@ Updates check `gemini-usage-timeline.meta.js`.
 
 - **Native Material 3 English UI**: Matches Gemini Web's typography (`Google Sans`), flat sidebar integration, rounded popover surfaces, and automatic light/dark theme switching (`.theme-host.light-theme` / `.theme-host.dark-theme`).
 - **5-Hour & Weekly Quota (`GXU_FIVE_HOURLY` & `GXU_WEEKLY`)**:
-  - Uses real rendered button & glyph geometry rather than custom-element host rects (`0×0` on `<bard-sidenav>`) so the indicator always sits cleanly between the profile avatar/name and Settings button without overlapping your avatar, and hides cleanly when the sidebar is collapsed.
+  - Mounts as an isolated fixed-layer widget on `document.body` (never reparented inside Angular `<bard-sidenav>` flex containers) using real rendered button & glyph geometry with 1px hysteresis, eliminating hover flicker and missed clicks while hiding cleanly when the sidebar is collapsed.
   - Reads your signed-in account's exact quota pools via Gemini Web's same-origin `GEMINI_WEB_GRAPHQL/executeQuery` endpoint, including `/u/<index>` multi-account path & `X-Goog-AuthUser` routing.
   - Automatically discovers updated `UsagePageQuery` persisted query signatures from Gemini's `UsagePageLoading` bundle if Google rotates the query hash on frontend deploys.
   - Refreshes automatically right after Gemini finishes generating a reply, plus periodic background sync while the tab is visible.

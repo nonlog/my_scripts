@@ -35,10 +35,12 @@ function createMiniDOM({
       this.eventListeners = new Map();
       this._rect = { left: 112, top: 850, right: 210, bottom: 882, width: 98, height: 32 };
       const self = this;
+      this._appendCount = 0;
       this.style = {
         left: '',
         right: '',
         top: '',
+        width: '',
         _props: new Map(),
         setProperty(k, v) { self.style._props.set(k, String(v)); },
         removeProperty(k) {
@@ -109,6 +111,7 @@ function createMiniDOM({
           const i = child.parentElement.children.indexOf(child);
           if (i >= 0) child.parentElement.children.splice(i, 1);
         }
+        child._appendCount = (child._appendCount || 0) + 1;
         child.parentElement = this;
         this.children.push(child);
       }
@@ -228,6 +231,7 @@ function createMiniDOM({
   themeHost.className = `theme-host ${theme}`;
   body.appendChild(themeHost);
 
+  // Reproduce Angular <bard-sidenav> having display:contents / 0x0 host rect!
   const sidenav = new MiniElement('bard-sidenav');
   sidenav._rect = sidenavZeroRect
     ? { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }
@@ -302,12 +306,19 @@ function createMiniDOM({
     querySelectorAll: (sel) => documentElement.querySelectorAll(sel),
     querySelector: (sel) => documentElement.querySelector(sel),
     addEventListener(type, fn) {
-      if (!listeners.has(type)) listeners.set(type).push(fn);
+      if (!listeners.has(type)) listeners.set(type, []);
+      listeners.get(type).push(fn);
     },
-  };
-  document.addEventListener = (type, fn) => {
-    if (!listeners.has(type)) listeners.set(type, []);
-    listeners.get(type).push(fn);
+    dispatch(type, event = {}) {
+      const fns = listeners.get(type) || [];
+      const evt = {
+        stopPropagation() {},
+        preventDefault() {},
+        target: body,
+        ...event,
+      };
+      for (const fn of fns) fn(evt);
+    },
   };
 
   let hookApi = null;
@@ -376,17 +387,18 @@ function createMiniDOM({
   return { hookApi, document, footerRow, profileBlock, gearBtn, scroller, storage, sidenav };
 }
 
-test('v1.1.0 uses English UI labels, matches metadata, and avoids innerHTML', () => {
-  assert.match(scriptSource, /@version\s+1\.1\.0/);
-  assert.match(metaSource, /@version\s+1\.1\.0/);
+test('v1.1.1 uses English UI labels, matches metadata, disables child pointer-events, and avoids innerHTML', () => {
+  assert.match(scriptSource, /@version\s+1\.1\.1/);
+  assert.match(metaSource, /@version\s+1\.1\.1/);
   assert.doesNotMatch(scriptSource, /\.innerHTML\s*=/);
   assert.doesNotMatch(scriptSource, /Gemini 用量限额|5 小时限额|周限额|后重置/, 'UI labels must be English');
+  assert.match(scriptSource, /\.gxu-avatar-quota\s+\*\s*\{[\s\S]*?pointer-events:\s*none;/);
   assert.match(scriptSource, /Usage limits/);
   assert.match(scriptSource, /5-hour limit/);
   assert.match(scriptSource, /Weekly limit/);
 });
 
-test('mounts inline between avatar and gear even when <bard-sidenav> host rect is 0x0, and hides when sidebar is collapsed', async () => {
+test('mounts once on document.body in the avatar-to-gear gap without reparenting or hover-loop churn', async () => {
   const env = createMiniDOM({
     sidenavZeroRect: true,
     gearRight: 256,
@@ -417,16 +429,73 @@ test('mounts inline between avatar and gear even when <bard-sidenav> host rect i
 
   const badge = env.document.getElementById('gxu-avatar-quota');
   assert.equal(badge.hasAttribute('data-hidden'), false, 'visible when gear button is in expanded sidebar');
-  assert.equal(badge.parentElement, env.footerRow, 'inserted inline in footerRow despite 0x0 bard-sidenav host');
-  assert.equal(env.footerRow.children[0], env.profileBlock);
-  assert.equal(env.footerRow.children[1], badge);
-  assert.equal(env.footerRow.children[2], env.gearBtn);
+  assert.equal(badge.parentElement, env.document.body, 'mounted directly on document.body (isolated from Angular sidenav hover/flex)');
+  assert.equal(badge._appendCount, 1, 'appended exactly once');
+
+  const leftPx = parseInt(badge.style.left, 10);
+  const widthPx = parseInt(badge.style.width, 10);
+  assert.ok(leftPx >= 94 + 8, `badge left (${leftPx}) clears profile text right edge (94)`);
+  assert.ok(leftPx + widthPx <= 224 - 5, `badge right (${leftPx + widthPx}) clears gear left edge (224)`);
   assert.equal(env.document.getElementById('gxu-mini-5h-val').textContent, '2%');
   assert.equal(env.document.getElementById('gxu-mini-wk-val').textContent, '3%');
 
+  // Calling mountQuotaWidget 20 times (including sub-1px jitter) must NEVER reparent or rewrite coordinates
+  const initialLeft = badge.style.left;
+  env.gearBtn._rect = { left: 224.4, top: 850.3, right: 256.4, bottom: 882.3, width: 32, height: 32 };
+  for (let i = 0; i < 20; i++) {
+    env.hookApi.mountQuotaWidget();
+  }
+  assert.equal(badge._appendCount, 1, 'zero reparenting across repeated sync cycles');
+  assert.equal(badge.style.left, initialLeft, '1px hysteresis prevents subpixel jitter');
+
+  // Simulate sidebar collapsed -> hides cleanly instead of floating over avatar
   env.gearBtn._rect = { left: 16, top: 850, right: 48, bottom: 882, width: 32, height: 32 };
   env.hookApi.mountQuotaWidget();
   assert.equal(badge.getAttribute('data-hidden'), 'true');
+});
+
+test('ignores self-mutations in MutationObserver and responds to every single click reliably', () => {
+  const env = createMiniDOM({ sidenavZeroRect: true, gearRight: 256 });
+  const badge = env.document.getElementById('gxu-avatar-quota');
+  const popover = env.document.getElementById('gxu-quota-popover');
+  const miniVal = env.document.getElementById('gxu-mini-5h-val');
+
+  // Self-mutations inside badge/popover or attaching badge to body must be ignored
+  assert.equal(
+    env.hookApi.hasExternalMutation([
+      { type: 'attributes', target: badge },
+      { type: 'characterData', target: miniVal },
+      { type: 'attributes', target: popover },
+      { type: 'childList', target: env.document.body, addedNodes: [badge], removedNodes: [] },
+    ]),
+    false,
+    'own UI mutations do not re-trigger scheduleUISync'
+  );
+  assert.equal(
+    env.hookApi.hasExternalMutation([{ type: 'attributes', target: env.sidenav }]),
+    true,
+    'external Gemini sidenav mutations still trigger sync'
+  );
+
+  // 10 consecutive clicks on badge must toggle popover 10/10 times without dropping a single click
+  for (let i = 1; i <= 10; i++) {
+    env.document.dispatch('pointerdown', { target: badge });
+    badge.dispatch('pointerdown', { target: badge });
+    badge.dispatch('mousedown', { target: badge });
+    badge.dispatch('click', { target: badge });
+    const expected = i % 2 === 1 ? 'true' : 'false';
+    assert.equal(popover.getAttribute('data-open'), expected, `click #${i} should set data-open=${expected}`);
+  }
+
+  // Open popover, verify clicking inside popover keeps it open, and pointerdown outside closes it
+  badge.dispatch('click', { target: badge });
+  assert.equal(popover.getAttribute('data-open'), 'true');
+  env.document.dispatch('pointerdown', { target: popover });
+  popover.dispatch('click', { target: popover });
+  assert.equal(popover.getAttribute('data-open'), 'true', 'clicking inside popover keeps it open');
+
+  env.document.dispatch('pointerdown', { target: env.scroller });
+  assert.equal(popover.getAttribute('data-open'), 'false', 'clicking outside closes popover cleanly');
 });
 
 test('renders timeline on the RIGHT side and opens preview card to the LEFT of ticks', () => {
@@ -442,6 +511,7 @@ test('renders timeline on the RIGHT side and opens preview card to the LEFT of t
   assert.equal(rail.style.right, '16px', 'anchored to the right edge of chat scroller');
   assert.equal(rail.style.left, 'auto', 'never placed on the left conversation list');
 
+  // Set realistic right-side tick rect and verify hover preview card opens to its left
   rail.children[0]._rect = { left: 1396, top: 440, right: 1424, bottom: 453, width: 28, height: 13 };
   rail.children[0].dispatch('mouseenter');
 

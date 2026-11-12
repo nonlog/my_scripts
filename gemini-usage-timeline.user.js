@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini Usage & Timeline
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      1.1.0
+// @version      1.1.1
 // @description  Show 5-hour and weekly usage quotas beside the Gemini Web sidebar profile, plus a Codex-style right-side turn timeline.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
@@ -422,14 +422,17 @@
         --gxu-highlight-ring: rgba(168, 199, 250, 0.22);
       }
 
-      /* Flat, flush inline badge beside sidebar profile avatar (no covering card) */
+      /* Flat, flush badge in the sidebar footer gap (isolated on body to prevent Angular hover/reflow loops) */
       .gxu-avatar-quota {
+        position: fixed;
+        z-index: 950;
         display: inline-flex;
         flex-direction: column;
         justify-content: center;
         gap: 4px;
-        padding: 4px 7px;
-        margin-inline: 8px auto;
+        padding: 6px 8px;
+        margin: 0;
+        min-height: 34px;
         border-radius: 8px;
         background: transparent;
         border: none;
@@ -438,22 +441,20 @@
         font-variant-numeric: tabular-nums;
         cursor: pointer;
         user-select: none;
-        flex: 0 0 auto;
+        -webkit-user-select: none;
+        touch-action: manipulation;
         width: 98px;
         box-sizing: border-box;
-        align-self: center;
-        transition: background-color 140ms ease, opacity 140ms ease;
+        transition: background-color 120ms ease;
+      }
+
+      .gxu-avatar-quota * {
+        pointer-events: none;
       }
 
       .gxu-avatar-quota:hover,
       .gxu-avatar-quota[data-open="true"] {
         background: var(--gxu-surface-hover);
-      }
-
-      .gxu-avatar-quota[data-slot="fixed-gap"] {
-        position: fixed;
-        z-index: 950;
-        margin: 0;
       }
 
       .gxu-avatar-quota[data-hidden="true"] {
@@ -1051,7 +1052,9 @@
         id: 'gxu-avatar-quota',
         role: 'button',
         tabindex: '0',
-        title: 'View 5-hour and weekly usage limits',
+        'aria-label': 'View 5-hour and weekly usage limits',
+        'aria-expanded': 'false',
+        'data-slot': 'fixed-gap',
         'data-hidden': 'true',
       },
       [
@@ -1172,7 +1175,13 @@
       popUpdated,
     };
 
+    const swallowPress = (e) => {
+      e.stopPropagation();
+    };
+    badgeEl.addEventListener('pointerdown', swallowPress);
+    badgeEl.addEventListener('mousedown', swallowPress);
     badgeEl.addEventListener('click', (e) => {
+      e.preventDefault();
       e.stopPropagation();
       togglePopover();
     });
@@ -1181,30 +1190,58 @@
         e.preventDefault();
         e.stopPropagation();
         togglePopover();
+      } else if (e.key === 'Escape' && popoverOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        togglePopover(false);
       }
     });
 
-    popoverEl.addEventListener('click', (e) => e.stopPropagation());
+    popoverEl.addEventListener('pointerdown', swallowPress);
+    popoverEl.addEventListener('mousedown', swallowPress);
+    popoverEl.addEventListener('click', swallowPress);
 
-    modeBtn.addEventListener('click', () => {
+    modeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
       displayMode = displayMode === 'used' ? 'remaining' : 'used';
       safeSetStorage(STORAGE_KEYS.mode, displayMode);
       renderQuotaUI();
     });
 
-    refreshBtn.addEventListener('click', () => {
+    refreshBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
       refreshQuota({ force: true });
     });
 
-    document.addEventListener('click', () => {
-      if (popoverOpen) togglePopover(false);
+    const closeOnOutsidePress = (e) => {
+      if (!popoverOpen) return;
+      const target = e?.target;
+      if (target && (badgeEl?.contains?.(target) || popoverEl?.contains?.(target))) {
+        return;
+      }
+      togglePopover(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePress, true);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && popoverOpen) {
+        togglePopover(false);
+      }
     });
+  }
+
+  function setAttrIfChanged(el, name, value) {
+    if (!el) return;
+    const str = String(value);
+    if (el.getAttribute(name) !== str) {
+      el.setAttribute(name, str);
+    }
   }
 
   function setQuotaLoading(loading) {
     if (!badgeEl || !uiRefs.refreshBtn) return;
-    badgeEl.setAttribute('data-loading', loading ? 'true' : 'false');
-    uiRefs.refreshBtn.setAttribute('data-spinning', loading ? 'true' : 'false');
+    const flag = loading ? 'true' : 'false';
+    setAttrIfChanged(badgeEl, 'data-loading', flag);
+    setAttrIfChanged(uiRefs.refreshBtn, 'data-spinning', flag);
   }
 
   function positionPopover() {
@@ -1212,23 +1249,28 @@
     const rect = badgeEl.getBoundingClientRect();
     const popW = 272;
     const popH = popoverEl.offsetHeight || 205;
-    const left = Math.max(12, Math.min(rect.left, window.innerWidth - popW - 12));
-    let top = rect.top - popH - 10;
+    const left = Math.round(Math.max(12, Math.min(rect.left, window.innerWidth - popW - 12)));
+    let top = Math.round(rect.top - popH - 10);
     if (top < 12) {
-      top = Math.min(window.innerHeight - popH - 12, rect.bottom + 10);
+      top = Math.round(Math.min(window.innerHeight - popH - 12, rect.bottom + 10));
     }
-    popoverEl.style.left = `${Math.round(left)}px`;
-    popoverEl.style.top = `${Math.round(top)}px`;
+    const leftPx = `${left}px`;
+    const topPx = `${top}px`;
+    if (popoverEl.style.left !== leftPx) popoverEl.style.left = leftPx;
+    if (popoverEl.style.top !== topPx) popoverEl.style.top = topPx;
   }
 
   function togglePopover(force) {
-    popoverOpen = typeof force === 'boolean' ? force : !popoverOpen;
+    const nextOpen = typeof force === 'boolean' ? force : !popoverOpen;
+    popoverOpen = nextOpen;
     if (!badgeEl || !popoverEl) return;
-    badgeEl.setAttribute('data-open', popoverOpen ? 'true' : 'false');
-    popoverEl.setAttribute('data-open', popoverOpen ? 'true' : 'false');
+    const flag = popoverOpen ? 'true' : 'false';
+    setAttrIfChanged(badgeEl, 'data-open', flag);
+    setAttrIfChanged(badgeEl, 'aria-expanded', flag);
+    setAttrIfChanged(popoverEl, 'data-open', flag);
     if (popoverOpen) {
       const prefix = getAccountPrefix(getAccountIndex());
-      uiRefs.usageLink?.setAttribute('href', `${ORIGIN}${prefix}/usage`);
+      setAttrIfChanged(uiRefs.usageLink, 'href', `${ORIGIN}${prefix}/usage`);
       renderQuotaUI();
       positionPopover();
       refreshQuota({ force: false });
@@ -1260,138 +1302,140 @@
     return null;
   }
 
-  function isFlexHorizontalRow(parent) {
-    const siblings = Array.from(parent.children || []).filter(
-      (el) => el !== badgeEl && el.tagName !== 'STYLE'
-    );
-    if (siblings.length < 2) return false;
-    try {
-      const cs = getComputedStyle(parent);
-      return (cs.display === 'flex' || cs.display === 'inline-flex') && !cs.flexDirection.startsWith('column');
-    } catch {
-      return false;
+  let lastBadgeLayout = { hidden: true, left: -9999, top: -9999, width: -9999 };
+
+  function hideQuotaBadge() {
+    if (!badgeEl) return;
+    if (!lastBadgeLayout.hidden || badgeEl.getAttribute('data-hidden') !== 'true') {
+      badgeEl.setAttribute('data-hidden', 'true');
+      lastBadgeLayout.hidden = true;
     }
+    if (popoverOpen) togglePopover(false);
   }
 
-  function findSidebarFooterAnchor(gear, sidenav) {
-    let branch = gear;
-    let parent = gear.parentElement;
-    for (let depth = 0; depth < 6 && parent && parent !== sidenav && parent !== document.body; depth++) {
-      if (isFlexHorizontalRow(parent, branch)) {
-        return { container: parent, beforeNode: branch };
-      }
-      branch = parent;
-      parent = parent.parentElement;
+  function findFooterScope(gear, sidenav) {
+    let scope = gear.parentElement || sidenav || document.body;
+    let cur = gear.parentElement;
+    for (let depth = 0; depth < 5 && cur && cur !== sidenav && cur !== document.body; depth++) {
+      const r = cur.getBoundingClientRect?.();
+      if (r && r.height > 108) break;
+      scope = cur;
+      cur = cur.parentElement;
     }
-    return null;
+    return scope;
   }
 
-  function computeProfileRightEdge(root, gearRect) {
-    // Measure actual visible avatar icon & text glyph right edge to the left of the Settings gear
-    let maxRight = 88;
-    if (!root?.querySelectorAll) return maxRight;
-    const bandTop = gearRect.top - 26;
-    const bandBottom = gearRect.bottom + 26;
+  function computeProfileRightEdge(gear, sidenav, gearRect) {
+    // Measure only within the footer row horizontally aligned with the Settings gear so conversation list items never interfere
+    let maxRight = 84;
+    const scope = findFooterScope(gear, sidenav);
+    if (!scope) return maxRight;
+    const gearCenterY = gearRect.top + gearRect.height / 2;
+    const inRowBand = (r) =>
+      r &&
+      r.width > 0 &&
+      r.height > 0 &&
+      r.height <= 72 &&
+      Math.abs(r.top + r.height / 2 - gearCenterY) <= 22 &&
+      r.right < gearRect.left - 8;
 
-    for (const media of root.querySelectorAll('img, svg')) {
-      if (badgeEl?.contains?.(media) || gearRect.left <= 0) continue;
-      const r = media.getBoundingClientRect?.();
-      if (r && r.width > 0 && r.height > 0 && r.top >= bandTop && r.bottom <= bandBottom && r.right < gearRect.left - 12) {
-        if (r.right > maxRight) maxRight = r.right;
+    if (scope.querySelectorAll) {
+      for (const media of scope.querySelectorAll('img, svg')) {
+        if (gear.contains?.(media)) continue;
+        const r = media.getBoundingClientRect?.();
+        if (inRowBand(r) && r.right > maxRight) {
+          maxRight = r.right;
+        }
       }
     }
 
     if (typeof document.createTreeWalker === 'function' && typeof document.createRange === 'function') {
-      const walker = document.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
+      const walker = document.createTreeWalker(scope, 4 /* NodeFilter.SHOW_TEXT */);
       const range = document.createRange();
       while (walker.nextNode()) {
         const node = walker.currentNode;
         if (!node.textContent || !node.textContent.trim()) continue;
         const parent = node.parentElement;
-        if (!parent || parent === badgeEl || badgeEl?.contains?.(parent)) continue;
+        if (!parent || gear.contains?.(parent)) continue;
         range.selectNodeContents(node);
         const r = range.getBoundingClientRect?.();
-        if (r && r.width > 0 && r.height > 0 && r.top >= bandTop && r.bottom <= bandBottom && r.right < gearRect.left - 8) {
-          if (r.right > maxRight) maxRight = r.right;
+        if (inRowBand(r) && r.right > maxRight) {
+          maxRight = r.right;
+        }
+      }
+    } else if (Array.isArray(scope.children)) {
+      for (const child of scope.children) {
+        if (child === gear || child === badgeEl || child.contains?.(gear)) continue;
+        const r = child.getBoundingClientRect?.();
+        if (inRowBand(r) && r.right > maxRight) {
+          maxRight = r.right;
         }
       }
     }
+
     return maxRight;
   }
 
   function mountQuotaWidget() {
     createQuotaDOM();
+    if (document.body && badgeEl.parentElement !== document.body) {
+      document.body.appendChild(badgeEl);
+    }
     if (document.body && popoverEl.parentElement !== document.body) {
       document.body.appendChild(popoverEl);
     }
 
     const gear = findSettingsGearButton();
     if (!gear) {
-      badgeEl.setAttribute('data-hidden', 'true');
-      if (popoverOpen) togglePopover(false);
+      hideQuotaBadge();
       return;
     }
 
-    // Use the real rendered gear <button> position to know if sidebar is expanded (immune to 0x0 custom-element hosts)
+    // Use real rendered gear <button> geometry (immune to 0x0 <bard-sidenav> custom-element host rect)
     const gearRect = gear.getBoundingClientRect?.() || { left: 224, right: 256, top: 850, bottom: 882, width: 32, height: 32 };
     const isSidebarExpanded = gearRect.width > 0 && gearRect.right >= 165;
-
     if (!isSidebarExpanded) {
-      badgeEl.setAttribute('data-hidden', 'true');
-      if (popoverOpen) togglePopover(false);
+      hideQuotaBadge();
       return;
     }
 
     const sidenav = document.querySelector(SIDENAV_SELECTOR);
-    const anchor = findSidebarFooterAnchor(gear, sidenav);
-
-    if (anchor && anchor.container) {
-      badgeEl.removeAttribute('data-slot');
-      badgeEl.removeAttribute('data-hidden');
-      badgeEl.style.removeProperty('left');
-      badgeEl.style.removeProperty('top');
-      if (badgeEl.parentElement !== anchor.container || badgeEl.nextElementSibling !== anchor.beforeNode) {
-        anchor.container.insertBefore(badgeEl, anchor.beforeNode);
-      }
-
-      // Verify flex insertion did not collide with the profile avatar/text or wrap out of row
-      const bRect = badgeEl.getBoundingClientRect?.();
-      const profileRight = computeProfileRightEdge(sidenav || anchor.container, gearRect);
-      if (
-        bRect &&
-        bRect.width > 0 &&
-        (bRect.left < profileRight - 2 ||
-          bRect.right > gearRect.left + 2 ||
-          Math.abs((bRect.top + bRect.height / 2) - (gearRect.top + gearRect.height / 2)) > 24)
-      ) {
-        placeInFooterGap(sidenav || document.body, gearRect);
-      }
+    const profileRight = computeProfileRightEdge(gear, sidenav, gearRect);
+    const availableGap = gearRect.left - profileRight - 14;
+    if (availableGap < 74) {
+      hideQuotaBadge();
       return;
     }
 
-    // Fallback when footer uses non-flex positioning: place cleanly in the empty horizontal gap between avatar text and gear
-    placeInFooterGap(sidenav || document.body, gearRect);
-  }
-
-  function placeInFooterGap(scopeRoot, gearRect) {
-    const profileRight = computeProfileRightEdge(scopeRoot, gearRect);
-    const badgeWidth = 98;
-    const minLeft = Math.round(profileRight + 10);
+    const badgeWidth = Math.max(82, Math.min(102, Math.floor(availableGap)));
+    const minLeft = Math.round(profileRight + 8);
     const maxLeft = Math.round(gearRect.left - badgeWidth - 6);
-    if (maxLeft < 72) {
-      badgeEl.setAttribute('data-hidden', 'true');
+    if (maxLeft < 68) {
+      hideQuotaBadge();
       return;
     }
-    const left = Math.min(maxLeft, Math.max(76, minLeft));
-    const top = Math.round(gearRect.top + gearRect.height / 2 - 16);
 
-    badgeEl.setAttribute('data-slot', 'fixed-gap');
-    badgeEl.removeAttribute('data-hidden');
-    badgeEl.style.left = `${left}px`;
-    badgeEl.style.top = `${top}px`;
-    if (document.body && badgeEl.parentElement !== document.body) {
-      document.body.appendChild(badgeEl);
+    const left = Math.min(maxLeft, Math.max(72, minLeft));
+    const top = Math.round(gearRect.top + gearRect.height / 2 - 17);
+
+    // 1px hysteresis prevents subpixel layout jitter and avoids unnecessary style mutations while hovered
+    if (lastBadgeLayout.hidden || badgeEl.hasAttribute('data-hidden')) {
+      badgeEl.removeAttribute('data-hidden');
+      lastBadgeLayout.hidden = false;
     }
+    if (Math.abs(badgeWidth - lastBadgeLayout.width) > 1) {
+      badgeEl.style.width = `${badgeWidth}px`;
+      lastBadgeLayout.width = badgeWidth;
+    }
+    if (Math.abs(left - lastBadgeLayout.left) > 1) {
+      badgeEl.style.left = `${left}px`;
+      lastBadgeLayout.left = left;
+    }
+    if (Math.abs(top - lastBadgeLayout.top) > 1) {
+      badgeEl.style.top = `${top}px`;
+      lastBadgeLayout.top = top;
+    }
+    badgeEl._rect = { left, top, right: left + badgeWidth, bottom: top + 34, width: badgeWidth, height: 34 };
   }
 
   function renderWindowMetric(win, refs, kind) {
@@ -1844,6 +1888,46 @@
     }
   }
 
+  function isOwnNode(node) {
+    if (!node) return false;
+    if (
+      node === badgeEl ||
+      node === popoverEl ||
+      node === railEl ||
+      node === cardEl ||
+      node.id === STYLE_ID
+    ) {
+      return true;
+    }
+    return Boolean(
+      badgeEl?.contains?.(node) ||
+      popoverEl?.contains?.(node) ||
+      railEl?.contains?.(node) ||
+      cardEl?.contains?.(node)
+    );
+  }
+
+  function hasExternalMutation(mutations) {
+    if (!Array.isArray(mutations) || mutations.length === 0) return true;
+    for (const m of mutations) {
+      if (isOwnNode(m.target)) continue;
+      if (
+        m.type === 'childList' &&
+        (m.target === document.body || m.target === document.head || m.target === document.documentElement)
+      ) {
+        const touched = [
+          ...Array.from(m.addedNodes || []),
+          ...Array.from(m.removedNodes || []),
+        ];
+        if (touched.length > 0 && touched.every(isOwnNode)) {
+          continue;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
   let syncScheduled = false;
   let lastHref = location.href;
 
@@ -1883,7 +1967,8 @@
     syncTimeline();
     refreshQuota({ force: false });
 
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver((mutations) => {
+      if (!hasExternalMutation(mutations)) return;
       scheduleUISync();
     });
     observer.observe(document.documentElement, {
@@ -1892,6 +1977,18 @@
       attributes: true,
       attributeFilter: ['class', 'aria-expanded', 'href'],
     });
+
+    document.addEventListener(
+      'transitionend',
+      (e) => {
+        const t = e?.target;
+        if (t && (t.matches?.(SIDENAV_SELECTOR) || t.closest?.(SIDENAV_SELECTOR))) {
+          mountQuotaWidget();
+          if (popoverOpen) positionPopover();
+        }
+      },
+      true
+    );
 
     window.addEventListener('resize', () => {
       updateTimelinePosition();
@@ -1931,6 +2028,8 @@
       refreshQuota,
       syncTimeline,
       mountQuotaWidget,
+      hasExternalMutation,
+      togglePopover,
     });
   }
 
