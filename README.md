@@ -19,7 +19,7 @@ To use both features, update Recent Messages to v0.8.7 and separately install Pr
 
 | Function | Userscript | Install / update | Documentation |
 | --- | --- | --- | --- |
-| Show 5-hour & weekly usage quotas beside profile avatar + right-side turn timeline | **Gemini Usage & Timeline** (v1.1.0) | [Install](https://raw.githubusercontent.com/nonlog/my_scripts/master/gemini-usage-timeline.user.js) | [Usage & Timeline](userscripts/gemini-usage-timeline/README.md) |
+| Show 5-hour & weekly usage quotas beside profile avatar + right-side turn timeline | **Gemini Usage & Timeline** (v1.1.1) | [Install](https://raw.githubusercontent.com/nonlog/my_scripts/master/gemini-usage-timeline.user.js) | [Usage & Timeline](userscripts/gemini-usage-timeline/README.md) |
 
 ## Repository layout
 
