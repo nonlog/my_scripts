@@ -1,6 +1,8 @@
 # my_scripts
 
-Personal browser userscripts plus compatibility pointers for CLI integrations maintained in dedicated repositories.
+Personal browser userscripts for ChatGPT Web and Gemini Web (ScriptCat / Tampermonkey).
+
+> Coding-agent extensions, session auto-title, Windows CLI notifications, and statusline scripts live in [`nonlog/agent-extras`](https://github.com/nonlog/agent-extras).
 
 ## ChatGPT browser userscripts
 
@@ -28,15 +30,6 @@ To use both features, update Recent Messages to v0.8.7 and separately install Pr
 - `userscripts/chatgpt-project-labels/README.md` — project-label documentation
 - `userscripts/gemini-usage-timeline/README.md` — Gemini usage & timeline documentation
 - `tests/` — userscript regression checks
-
-## Other projects
-
-| Category | Project | Canonical location |
-| --- | --- | --- |
-| Codex CLI hook | Auto Thread Title | https://github.com/nonlog/codex-auto-thread-title |
-| Windows CLI integration | Completion notifications for Codex / Claude Code / Pi | https://github.com/nonlog/windows-cli-notify |
-| Pi extension | Auto Session Title | https://github.com/nonlog/pi-auto-session-title |
-| Claude Code title hook | Retired; use Claude Code built-in auto-title | [Retirement note](docs/retired/claude-auto-session-title.md) |
 
 ## Release policy
 
