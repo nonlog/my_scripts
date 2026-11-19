@@ -387,9 +387,9 @@ function createMiniDOM({
   return { hookApi, document, footerRow, profileBlock, gearBtn, scroller, storage, sidenav };
 }
 
-test('v1.1.2 uses English UI labels, matches metadata, disables child pointer-events, and avoids innerHTML', () => {
-  assert.match(scriptSource, /@version\s+1\.1\.2/);
-  assert.match(metaSource, /@version\s+1\.1\.2/);
+test('v1.2.0 uses English UI labels, matches metadata, disables child pointer-events, and avoids innerHTML', () => {
+  assert.match(scriptSource, /@version\s+1\.2\.0/);
+  assert.match(metaSource, /@version\s+1\.2\.0/);
   assert.doesNotMatch(scriptSource, /\.innerHTML\s*=/);
   assert.doesNotMatch(scriptSource, /Gemini 用量限额|5 小时限额|周限额|后重置/, 'UI labels must be English');
   assert.match(scriptSource, /\.gxu-avatar-quota\s+\*\s*\{[\s\S]*?pointer-events:\s*none;/);
@@ -535,4 +535,46 @@ test('ignores upper sidebar or conversation-area settings matches and anchors to
   const topPx = parseInt(badge.style.top, 10);
   assert.equal(badge.hasAttribute('data-hidden'), false);
   assert.ok(topPx >= 840, `expected badge top near bottom footer (>=840), got ${topPx}`);
+});
+
+test('exports conversation as Markdown with user and assistant messages while excluding thoughts and executed commands', () => {
+  const env = createMiniDOM({
+    turns: [
+      { id: 'q1', top: 120, lines: ['How do I list files?'] },
+    ],
+  });
+
+  const resp = env.document.createElement('model-response');
+  resp._rect = { left: 420, top: 220, right: 1120, bottom: 420, width: 700, height: 200 };
+
+  const thoughts = env.document.createElement('model-thoughts');
+  thoughts.textContent = 'Internal thinking should be excluded';
+  resp.appendChild(thoughts);
+
+  const toolCall = env.document.createElement('div');
+  toolCall.className = 'tool-call';
+  toolCall.textContent = 'ls -la /tmp/secret_cmd';
+  resp.appendChild(toolCall);
+
+  const msgContent = env.document.createElement('message-content');
+  const p = env.document.createElement('p');
+  p.textContent = 'Run this command:';
+  const pre = env.document.createElement('pre');
+  const code = env.document.createElement('code');
+  code.className = 'language-bash';
+  code.textContent = 'ls -la';
+  pre.appendChild(code);
+  msgContent.appendChild(p);
+  msgContent.appendChild(pre);
+  resp.appendChild(msgContent);
+  env.scroller.appendChild(resp);
+
+  const md = env.hookApi.buildConversationMarkdown();
+  assert.match(md, /## User\n\nHow do I list files\?/);
+  assert.match(md, /## Gemini\n\nRun this command:/);
+  assert.match(md, /```bash\nls -la\n```/);
+  assert.doesNotMatch(md, /Internal thinking should be excluded/);
+  assert.doesNotMatch(md, /secret_cmd/);
+  assert.ok(env.document.getElementById('gxu-export-btn'), 'export button present in quota popover');
+  assert.ok(env.document.getElementById('gxu-timeline-export'), 'export button present in timeline rail');
 });
