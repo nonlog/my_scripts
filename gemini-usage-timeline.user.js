@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini Usage & Timeline
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      1.1.2
+// @version      1.2.0
 // @description  Show 5-hour and weekly usage quotas beside the Gemini Web sidebar profile, plus a Codex-style right-side turn timeline.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
@@ -75,6 +75,38 @@
   const STYLE_ID = 'gxu-usage-timeline-style';
 
   const USER_TURN_SELECTOR = 'user-query, .user-query-container, [data-message-author-role="user"]';
+  const MODEL_RESPONSE_SELECTOR = 'model-response, .model-response, response-container, [data-message-author-role="model"]';
+  const EXCLUDED_RESPONSE_SELECTOR = [
+    'model-thoughts',
+    '.thoughts-container',
+    '.thoughts-wrapper',
+    '.thinking-process',
+    '[data-test-id="model-thoughts"]',
+    '[data-test-id*="thought"]',
+    '[data-test-id*="tool"]',
+    '[data-test-id*="code-execution"]',
+    '.tool-call',
+    '.tool-calls-container',
+    '.tool-use',
+    '.code-execution',
+    '.execution-status',
+    '.chip-container',
+    'mat-expansion-panel',
+    'expansion-panel',
+    '.response-container-header',
+    '.model-response-header',
+    'message-actions',
+    '.response-footer',
+    '.feedback-buttons',
+    'tts-control',
+    '.copy-button',
+    'button',
+    'mat-icon',
+    'svg',
+    'script',
+    'style',
+    '[aria-hidden="true"]',
+  ].join(', ');
   const SCROLLER_SELECTOR = '#chat-history, infinite-scroller.chat-history, .chat-history-scroll-container';
   const SIDENAV_SELECTOR = 'bard-sidenav, side-navigation-v2, mat-sidenav';
   const NON_CHAT_PATH_RE = /^\/(?:u\/\d+\/)?(?:usage|mystuff|library|scheduled|gems\/view|saved-info|extensions|updates)(?:\/|$)/i;
@@ -849,6 +881,32 @@
         border-radius: 16px;
         animation: gxu-turn-pulse 1.2s ease-out;
       }
+
+      .gxu-timeline-export {
+        margin-top: 6px;
+        width: 24px;
+        height: 24px;
+        border: none;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--gxu-text-muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+        transition: background-color 120ms ease, color 120ms ease;
+      }
+
+      .gxu-timeline-export:hover {
+        background: var(--gxu-surface-hover);
+        color: var(--gxu-text-primary);
+      }
+
+      .gxu-timeline-export[data-exported="true"],
+      .gxu-icon-btn[data-exported="true"] {
+        color: var(--gxu-accent-5h);
+      }
     `;
     (document.head || document.documentElement).appendChild(style);
   }
@@ -1117,6 +1175,36 @@
       textContent: '↗',
     });
 
+    const exportIcon = svg(
+      'svg',
+      {
+        viewBox: '0 0 24 24',
+        width: '13',
+        height: '13',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': '2',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+      },
+      [
+        svg('path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }),
+        svg('polyline', { points: '7 10 12 15 17 10' }),
+        svg('line', { x1: '12', y1: '15', x2: '12', y2: '3' }),
+      ]
+    );
+
+    const exportBtn = h(
+      'button',
+      {
+        type: 'button',
+        className: 'gxu-icon-btn',
+        id: 'gxu-export-btn',
+        title: 'Export conversation as Markdown',
+      },
+      [exportIcon]
+    );
+
     const pop5hPct = h('span', { className: 'gxu-pop-pct', id: 'gxu-pop-5h-pct', textContent: '--%' });
     const pop5hFill = h('div', { className: 'gxu-pop-fill', id: 'gxu-pop-5h-fill' });
     const pop5hSub = h('span', { id: 'gxu-pop-5h-sub', textContent: 'Loading…' });
@@ -1132,7 +1220,7 @@
     popoverEl = h('div', { className: 'gxu-quota-popover', id: 'gxu-quota-popover' }, [
       h('div', { className: 'gxu-pop-header' }, [
         h('div', { className: 'gxu-pop-title', textContent: 'Usage limits' }),
-        h('div', { className: 'gxu-pop-actions' }, [modeBtn, refreshBtn, usageLink]),
+        h('div', { className: 'gxu-pop-actions' }, [exportBtn, modeBtn, refreshBtn, usageLink]),
       ]),
       h('div', { className: 'gxu-pop-section', 'data-window': '5h' }, [
         h('div', { className: 'gxu-pop-row' }, [
@@ -1173,6 +1261,7 @@
       popWkSub,
       popWkRem,
       popUpdated,
+      exportBtn,
     };
 
     const swallowPress = (e) => {
@@ -1211,6 +1300,11 @@
     refreshBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       refreshQuota({ force: true });
+    });
+
+    exportBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportConversationMarkdown();
     });
 
     const closeOnOutsidePress = (e) => {
@@ -1545,6 +1639,7 @@
   // ---------------------------------------------------------------------------
 
   let railEl = null;
+  let railExportBtn = null;
   let cardEl = null;
   let cardRefs = {};
   let timelineTurns = [];
@@ -1562,6 +1657,39 @@
       id: 'gxu-timeline-rail',
       'aria-label': 'Conversation timeline',
       'data-hidden': 'true',
+    });
+
+    const railExportSvg = svg(
+      'svg',
+      {
+        viewBox: '0 0 24 24',
+        width: '14',
+        height: '14',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': '1.9',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+      },
+      [
+        svg('path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }),
+        svg('polyline', { points: '7 10 12 15 17 10' }),
+        svg('line', { x1: '12', y1: '15', x2: '12', y2: '3' }),
+      ]
+    );
+    railExportBtn = h(
+      'button',
+      {
+        type: 'button',
+        className: 'gxu-timeline-export',
+        id: 'gxu-timeline-export',
+        title: 'Export conversation as Markdown',
+      },
+      [railExportSvg]
+    );
+    railExportBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exportConversationMarkdown();
     });
 
     const bookmarkPath = svg('path', {
@@ -1884,12 +2012,286 @@
         });
         railEl.appendChild(item);
       });
+      if (railExportBtn) {
+        railEl.appendChild(railExportBtn);
+      }
       activeTurnIndex = -1;
     }
 
     railEl.setAttribute('data-hidden', 'false');
     updateTimelinePosition();
     updateActiveTurnFromViewport();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Conversation Markdown Export (User & Assistant messages, excluding commands)
+  // ---------------------------------------------------------------------------
+
+  function deduplicateElements(elements) {
+    return elements.filter((el) => !elements.some((other) => other !== el && other.contains?.(el)));
+  }
+
+  function isExcludedResponseNode(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.matches?.(EXCLUDED_RESPONSE_SELECTOR)) return true;
+    const tag = String(el.tagName || '').toUpperCase();
+    if (tag === 'MODEL-THOUGHTS' || tag === 'BUTTON' || tag === 'SVG' || tag === 'MAT-ICON' || tag === 'SCRIPT' || tag === 'STYLE') {
+      return true;
+    }
+    if (el.getAttribute?.('aria-hidden') === 'true') return true;
+    return false;
+  }
+
+  function detectCodeBlockLanguage(preEl) {
+    const codeEl = preEl.querySelector?.('code');
+    const cls = `${preEl.className || ''} ${codeEl?.className || ''}`;
+    const m = cls.match(/language-([A-Za-z0-9_+#.-]+)/i);
+    if (m) return m[1];
+    const parent = preEl.parentElement;
+    const header = parent?.querySelector?.('.code-block-decoration, .language-label, [data-test-id="code-language"]');
+    const langText = (header?.textContent || '').trim().split(/\s+/)[0] || '';
+    return /^[A-Za-z0-9_+#.-]{1,20}$/.test(langText) ? langText.toLowerCase() : '';
+  }
+
+  function serializeChildren(node, ctx) {
+    let out = '';
+    for (const child of Array.from(node.childNodes || node.children || [])) {
+      out += serializeNodeToMarkdown(child, ctx);
+    }
+    return out;
+  }
+
+  function serializeList(listEl, ordered, ctx) {
+    const items = Array.from(listEl.children || []).filter(
+      (c) => String(c.tagName || '').toUpperCase() === 'LI' && !isExcludedResponseNode(c)
+    );
+    const indent = '  '.repeat(ctx.listDepth || 0);
+    const lines = [];
+    items.forEach((li, idx) => {
+      const prefix = ordered ? `${idx + 1}. ` : '- ';
+      const raw = serializeChildren(li, { ...ctx, listDepth: (ctx.listDepth || 0) + 1 }).trim();
+      if (!raw) return;
+      const parts = raw.split('\n');
+      lines.push(`${indent}${prefix}${parts[0]}`);
+      for (let i = 1; i < parts.length; i++) {
+        lines.push(parts[i] ? `${indent}  ${parts[i]}` : '');
+      }
+    });
+    return lines.length > 0 ? `\n${lines.join('\n')}\n\n` : '';
+  }
+
+  function serializeTable(tableEl, ctx) {
+    const rows = Array.from(tableEl.querySelectorAll?.('tr') || []);
+    if (rows.length === 0) return '';
+    const matrix = rows.map((tr) =>
+      Array.from(tr.children || [])
+        .filter((c) => /^(TD|TH)$/i.test(c.tagName || ''))
+        .map((cell) => serializeChildren(cell, ctx).replace(/\s+/g, ' ').trim().replace(/\|/g, '\\|'))
+    ).filter((r) => r.length > 0);
+    if (matrix.length === 0) return '';
+    const colCount = Math.max(...matrix.map((r) => r.length));
+    const padRow = (r) => Array.from({ length: colCount }, (_, i) => r[i] || '');
+    const header = padRow(matrix[0]);
+    const sep = Array.from({ length: colCount }, () => '---');
+    const bodyRows = matrix.slice(1).map(padRow);
+    const lines = [
+      `| ${header.join(' | ')} |`,
+      `| ${sep.join(' | ')} |`,
+      ...bodyRows.map((r) => `| ${r.join(' | ')} |`),
+    ];
+    return `\n${lines.join('\n')}\n\n`;
+  }
+
+  function serializeNodeToMarkdown(node, ctx = { listDepth: 0, inPre: false }) {
+    if (!node) return '';
+    if (node.nodeType === 3) {
+      const txt = node.textContent || '';
+      return ctx.inPre ? txt : txt.replace(/\s+/g, ' ');
+    }
+    if (node.nodeType !== 1) return '';
+    if (isExcludedResponseNode(node)) return '';
+
+    const tag = String(node.tagName || '').toUpperCase();
+    if (tag === 'BR') return '\n';
+    if (tag === 'HR') return '\n\n---\n\n';
+
+    if (/^H[1-6]$/.test(tag)) {
+      const level = Number(tag[1]);
+      const inner = serializeChildren(node, ctx).trim();
+      return inner ? `\n\n${'#'.repeat(level)} ${inner}\n\n` : '';
+    }
+
+    if (tag === 'PRE') {
+      const lang = detectCodeBlockLanguage(node);
+      const codeNode = node.querySelector?.('code') || node;
+      const codeText = (codeNode.textContent || '').replace(/^\n+|\n+$/g, '');
+      const fence = codeText.includes('```') ? '````' : '```';
+      return `\n\n${fence}${lang}\n${codeText}\n${fence}\n\n`;
+    }
+
+    if (tag === 'CODE') {
+      if (ctx.inPre) return node.textContent || '';
+      const raw = (node.textContent || '').trim();
+      if (!raw) return '';
+      return raw.includes('`') ? `\`\` ${raw} \`\`` : `\`${raw}\``;
+    }
+
+    if (tag === 'STRONG' || tag === 'B') {
+      const inner = serializeChildren(node, ctx).trim();
+      return inner ? `**${inner}**` : '';
+    }
+
+    if (tag === 'EM' || tag === 'I') {
+      const inner = serializeChildren(node, ctx).trim();
+      return inner ? `*${inner}*` : '';
+    }
+
+    if (tag === 'DEL' || tag === 'S') {
+      const inner = serializeChildren(node, ctx).trim();
+      return inner ? `~~${inner}~~` : '';
+    }
+
+    if (tag === 'A') {
+      const inner = serializeChildren(node, ctx).trim();
+      const href = node.getAttribute?.('href') || '';
+      if (!inner) return '';
+      return href ? `[${inner}](${href})` : inner;
+    }
+
+    if (tag === 'BLOCKQUOTE') {
+      const inner = serializeChildren(node, ctx).trim();
+      if (!inner) return '';
+      const quoted = inner.split('\n').map((l) => (l ? `> ${l}` : '>')).join('\n');
+      return `\n\n${quoted}\n\n`;
+    }
+
+    if (tag === 'UL') return serializeList(node, false, ctx);
+    if (tag === 'OL') return serializeList(node, true, ctx);
+    if (tag === 'TABLE') return serializeTable(node, ctx);
+
+    const inner = serializeChildren(node, ctx);
+    if (/^(P|DIV|SECTION|ARTICLE|MESSAGE-CONTENT)$/.test(tag)) {
+      const trimmed = inner.trim();
+      return trimmed ? `\n\n${trimmed}\n\n` : '';
+    }
+    return inner;
+  }
+
+  function extractAssistantMarkdown(respEl) {
+    if (!respEl) return '';
+    const contentNodes = deduplicateElements(
+      Array.from(
+        respEl.querySelectorAll?.('message-content, .markdown-main-panel, [data-test-id="model-response-text"]') || []
+      ).filter((el) => !el.closest?.(EXCLUDED_RESPONSE_SELECTOR))
+    );
+    const targets = contentNodes.length > 0 ? contentNodes : [respEl];
+    const md = targets
+      .map((t) => serializeNodeToMarkdown(t))
+      .join('\n\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    return md;
+  }
+
+  function compareDomOrder(a, b) {
+    if (a === b) return 0;
+    if (typeof a?.compareDocumentPosition === 'function') {
+      const pos = a.compareDocumentPosition(b);
+      if (pos & 4) return -1; // DOCUMENT_POSITION_FOLLOWING
+      if (pos & 2) return 1;  // DOCUMENT_POSITION_PRECEDING
+    }
+    return 0;
+  }
+
+  function collectConversationMessages() {
+    const userEls = collectDeduplicatedUserTurns();
+    const modelEls = deduplicateElements(
+      Array.from(document.querySelectorAll(MODEL_RESPONSE_SELECTOR)).filter(isTurnVisible)
+    );
+
+    const entries = [];
+    userEls.forEach((el, idx) => {
+      const prompt = extractTurnPrompt(el);
+      const text = (prompt.raw || '').trim();
+      if (text) entries.push({ role: 'user', el, order: idx * 2, text });
+    });
+    modelEls.forEach((el, idx) => {
+      const text = extractAssistantMarkdown(el);
+      if (text) entries.push({ role: 'assistant', el, order: idx * 2 + 1, text });
+    });
+
+    entries.sort((a, b) => {
+      const domCmp = compareDomOrder(a.el, b.el);
+      return domCmp !== 0 ? domCmp : a.order - b.order;
+    });
+
+    return entries.map(({ role, text }) => ({ role, text }));
+  }
+
+  function getConversationTitle() {
+    const title = (document.title || '').replace(/\s*-\s*Gemini\s*$/i, '').trim();
+    if (title && !/^Gemini$/i.test(title)) return title;
+    const firstTurn = timelineTurns[0]?.title;
+    return firstTurn || 'Gemini Conversation';
+  }
+
+  function buildConversationMarkdown() {
+    const messages = collectConversationMessages();
+    const title = getConversationTitle();
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const exportedAt = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
+    const lines = [
+      `# ${title}`,
+      '',
+      `- URL: ${location.href}`,
+      `- Exported: ${exportedAt}`,
+      '',
+    ];
+
+    for (const msg of messages) {
+      lines.push(msg.role === 'user' ? '## User' : '## Gemini');
+      lines.push('');
+      lines.push(msg.text);
+      lines.push('');
+    }
+
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+  }
+
+  function buildExportFilename(title) {
+    const safeTitle = (title || 'gemini-conversation')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 60) || 'gemini-conversation';
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
+    return `${safeTitle}-${stamp}.md`;
+  }
+
+  function exportConversationMarkdown() {
+    const md = buildConversationMarkdown();
+    const filename = buildExportFilename(getConversationTitle());
+    if (typeof Blob === 'function' && typeof URL?.createObjectURL === 'function') {
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = h('a', { href: url, download: filename, style: 'display:none' });
+      (document.body || document.documentElement).appendChild(a);
+      a.click?.();
+      a.remove?.();
+      setTimeout(() => URL.revokeObjectURL?.(url), 1500);
+    }
+    for (const btn of [uiRefs.exportBtn, railExportBtn]) {
+      if (!btn) continue;
+      btn.setAttribute('data-exported', 'true');
+      setTimeout(() => btn.removeAttribute('data-exported'), 1600);
+    }
+    return { filename, markdown: md };
   }
 
   // ---------------------------------------------------------------------------
@@ -2054,6 +2456,9 @@
       mountQuotaWidget,
       hasExternalMutation,
       togglePopover,
+      collectConversationMessages,
+      buildConversationMarkdown,
+      exportConversationMarkdown,
     });
   }
 
