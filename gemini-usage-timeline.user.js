@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini Usage & Timeline
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      1.1.1
+// @version      1.1.2
 // @description  Show 5-hour and weekly usage quotas beside the Gemini Web sidebar profile, plus a Codex-style right-side turn timeline.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
@@ -1280,26 +1280,50 @@
   function findSettingsGearButton() {
     const scope = document.querySelector(SIDENAV_SELECTOR) || document;
     const buttons = Array.from(scope.querySelectorAll('button, [role="button"]'));
+    const minBottomTop = (window.innerHeight || 800) * 0.5;
+    let best = null;
+    let bestScore = -1;
+    let bestBottom = -1;
+
     for (const btn of buttons) {
+      if (btn.closest?.('conversations-list, .conversations-container, [data-test-id="all-conversations"]')) {
+        continue;
+      }
+
       const testId = (btn.getAttribute('data-test-id') || '').toLowerCase();
       const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
-      const matchesAttr =
-        testId.includes('settings') ||
-        /settings|设置|設定/.test(aria) ||
-        Boolean(btn.querySelector?.('mat-icon[fonticon="settings"], [data-mat-icon-name="settings"]'));
-      const iconEl = !matchesAttr
+      const hasSettingsIconAttr = Boolean(
+        btn.querySelector?.('mat-icon[fonticon="settings"], [data-mat-icon-name="settings"]')
+      );
+      const iconEl = !hasSettingsIconAttr
         ? btn.querySelector?.('mat-icon, .google-symbols, .luminous-symbols, .material-symbols-rounded')
         : null;
-      const matchesIcon = Boolean(iconEl && (iconEl.textContent || '').trim() === 'settings');
+      const hasSettingsIconText = Boolean(iconEl && (iconEl.textContent || '').trim() === 'settings');
+      const matchesAttr = testId.includes('settings') || /settings|设置|設定/.test(aria);
 
-      if (!matchesAttr && !matchesIcon) continue;
+      if (!hasSettingsIconAttr && !hasSettingsIconText && !matchesAttr) continue;
+
+      let rect = { left: 224, top: 850, bottom: 882, width: 32, height: 32 };
       if (btn.getBoundingClientRect) {
         const r = btn.getBoundingClientRect();
-        if (r.width <= 0 || r.height <= 0 || r.left > 440) continue;
+        if (r.width <= 0 || r.height <= 0 || r.left > 440 || r.height > 64 || r.width > 280) continue;
+        if (r.top < minBottomTop) continue;
+        rect = r;
       }
-      return btn;
+
+      const isNativeButton = String(btn.tagName || '').toUpperCase() === 'BUTTON';
+      const score =
+        (isNativeButton ? 4 : 0) +
+        (hasSettingsIconAttr || hasSettingsIconText ? 2 : 0) +
+        (matchesAttr ? 1 : 0);
+
+      if (score > bestScore || (score === bestScore && rect.bottom > bestBottom)) {
+        best = btn;
+        bestScore = score;
+        bestBottom = rect.bottom;
+      }
     }
-    return null;
+    return best;
   }
 
   let lastBadgeLayout = { hidden: true, left: -9999, top: -9999, width: -9999 };
@@ -1393,7 +1417,7 @@
 
     // Use real rendered gear <button> geometry (immune to 0x0 <bard-sidenav> custom-element host rect)
     const gearRect = gear.getBoundingClientRect?.() || { left: 224, right: 256, top: 850, bottom: 882, width: 32, height: 32 };
-    const isSidebarExpanded = gearRect.width > 0 && gearRect.right >= 165;
+    const isSidebarExpanded = gearRect.width > 0 && gearRect.right >= 165 && gearRect.top >= (window.innerHeight || 800) * 0.5;
     if (!isSidebarExpanded) {
       hideQuotaBadge();
       return;
