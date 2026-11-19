@@ -387,9 +387,9 @@ function createMiniDOM({
   return { hookApi, document, footerRow, profileBlock, gearBtn, scroller, storage, sidenav };
 }
 
-test('v1.1.1 uses English UI labels, matches metadata, disables child pointer-events, and avoids innerHTML', () => {
-  assert.match(scriptSource, /@version\s+1\.1\.1/);
-  assert.match(metaSource, /@version\s+1\.1\.1/);
+test('v1.1.2 uses English UI labels, matches metadata, disables child pointer-events, and avoids innerHTML', () => {
+  assert.match(scriptSource, /@version\s+1\.1\.2/);
+  assert.match(metaSource, /@version\s+1\.1\.2/);
   assert.doesNotMatch(scriptSource, /\.innerHTML\s*=/);
   assert.doesNotMatch(scriptSource, /Gemini 用量限额|5 小时限额|周限额|后重置/, 'UI labels must be English');
   assert.match(scriptSource, /\.gxu-avatar-quota\s+\*\s*\{[\s\S]*?pointer-events:\s*none;/);
@@ -519,4 +519,20 @@ test('renders timeline on the RIGHT side and opens preview card to the LEFT of t
   assert.equal(card.getAttribute('data-open'), 'true');
   const cardLeft = parseInt(card.style.left, 10);
   assert.ok(cardLeft < 1396 - 200, `card opens to the left of right-side rail (got left=${cardLeft})`);
+});
+
+test('ignores upper sidebar or conversation-area settings matches and anchors to bottom footer gear', () => {
+  const env = createMiniDOM({ sidenavZeroRect: true, gearRight: 256 });
+  const fakeUpperMatch = env.document.createElement('div');
+  fakeUpperMatch.setAttribute('role', 'button');
+  fakeUpperMatch.setAttribute('aria-label', 'Conversation settings');
+  fakeUpperMatch._rect = { left: 16, top: 500, right: 240, bottom: 536, width: 224, height: 36 };
+  env.sidenav.insertBefore(fakeUpperMatch, env.footerRow);
+
+  env.hookApi.mountQuotaWidget();
+
+  const badge = env.document.getElementById('gxu-avatar-quota');
+  const topPx = parseInt(badge.style.top, 10);
+  assert.equal(badge.hasAttribute('data-hidden'), false);
+  assert.ok(topPx >= 840, `expected badge top near bottom footer (>=840), got ${topPx}`);
 });
