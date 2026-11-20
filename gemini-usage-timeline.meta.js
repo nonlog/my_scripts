@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini Usage & Timeline
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      1.2.2
+// @version      1.2.3
 // @description  Show 5-hour and weekly usage quotas beside the Gemini Web sidebar profile, plus a Codex-style right-side turn timeline.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
