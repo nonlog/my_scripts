@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini Usage & Timeline
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      1.2.3
+// @version      1.2.4
 // @description  Show 5-hour and weekly usage quotas beside the Gemini Web sidebar profile, plus a Codex-style right-side turn timeline.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
@@ -2314,8 +2314,10 @@
         itemBtn.removeAttribute?.('aria-describedby');
         const iconEl = itemBtn.querySelector?.('mat-icon, .google-symbols, .luminous-symbols, .material-symbols-rounded');
         if (iconEl) {
-          if (iconEl.hasAttribute?.('fonticon')) iconEl.setAttribute('fonticon', 'download');
-          if (iconEl.hasAttribute?.('data-mat-icon-name')) iconEl.setAttribute('data-mat-icon-name', 'download');
+          const hasFonticon = Boolean(iconEl.hasAttribute?.('fonticon'));
+          const hasMatName = Boolean(iconEl.hasAttribute?.('data-mat-icon-name'));
+          if (hasFonticon) iconEl.setAttribute('fonticon', 'download');
+          if (hasMatName) iconEl.setAttribute('data-mat-icon-name', 'download');
           const hasSvg = Boolean(iconEl.querySelector?.('svg'));
           if (hasSvg && templateItem !== downloadPdfItem) {
             clearChildren(iconEl);
@@ -2340,7 +2342,8 @@
               )
             );
           } else if (!hasSvg) {
-            iconEl.textContent = 'download';
+            // Avoid rendering duplicate ligatures when fonticon::before already supplies the glyph
+            iconEl.textContent = hasFonticon ? '' : 'download';
           }
         }
         const labelEl = itemBtn.querySelector?.('.mat-mdc-menu-item-text, .mdc-list-item__primary-text');
