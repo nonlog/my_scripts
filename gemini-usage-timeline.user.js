@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini Usage & Timeline
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      1.2.0
+// @version      1.2.1
 // @description  Show 5-hour and weekly usage quotas beside the Gemini Web sidebar profile, plus a Codex-style right-side turn timeline.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
@@ -882,28 +882,34 @@
         animation: gxu-turn-pulse 1.2s ease-out;
       }
 
-      .gxu-timeline-export {
-        margin-top: 6px;
-        width: 24px;
-        height: 24px;
-        border: none;
-        border-radius: 7px;
-        background: transparent;
-        color: var(--gxu-text-muted);
-        display: inline-flex;
+      .gxu-menu-export-item {
+        display: flex;
         align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        padding: 0;
-        transition: background-color 120ms ease, color 120ms ease;
-      }
-
-      .gxu-timeline-export:hover {
-        background: var(--gxu-surface-hover);
+        gap: 12px;
+        width: 100%;
+        min-height: 40px;
+        padding: 0 16px;
+        border: none;
+        background: transparent;
         color: var(--gxu-text-primary);
+        font-family: var(--gxu-font);
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 20px;
+        text-align: left;
+        cursor: pointer;
+        box-sizing: border-box;
       }
 
-      .gxu-timeline-export[data-exported="true"],
+      .gxu-menu-export-item:hover {
+        background: var(--gxu-surface-hover);
+      }
+
+      .gxu-menu-export-item svg {
+        flex: 0 0 auto;
+        color: var(--gxu-text-secondary);
+      }
+
       .gxu-icon-btn[data-exported="true"] {
         color: var(--gxu-accent-5h);
       }
@@ -1639,7 +1645,6 @@
   // ---------------------------------------------------------------------------
 
   let railEl = null;
-  let railExportBtn = null;
   let cardEl = null;
   let cardRefs = {};
   let timelineTurns = [];
@@ -1657,39 +1662,6 @@
       id: 'gxu-timeline-rail',
       'aria-label': 'Conversation timeline',
       'data-hidden': 'true',
-    });
-
-    const railExportSvg = svg(
-      'svg',
-      {
-        viewBox: '0 0 24 24',
-        width: '14',
-        height: '14',
-        fill: 'none',
-        stroke: 'currentColor',
-        'stroke-width': '1.9',
-        'stroke-linecap': 'round',
-        'stroke-linejoin': 'round',
-      },
-      [
-        svg('path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }),
-        svg('polyline', { points: '7 10 12 15 17 10' }),
-        svg('line', { x1: '12', y1: '15', x2: '12', y2: '3' }),
-      ]
-    );
-    railExportBtn = h(
-      'button',
-      {
-        type: 'button',
-        className: 'gxu-timeline-export',
-        id: 'gxu-timeline-export',
-        title: 'Export conversation as Markdown',
-      },
-      [railExportSvg]
-    );
-    railExportBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      exportConversationMarkdown();
     });
 
     const bookmarkPath = svg('path', {
@@ -2012,9 +1984,6 @@
         });
         railEl.appendChild(item);
       });
-      if (railExportBtn) {
-        railEl.appendChild(railExportBtn);
-      }
       activeTurnIndex = -1;
     }
 
@@ -2286,12 +2255,103 @@
       a.remove?.();
       setTimeout(() => URL.revokeObjectURL?.(url), 1500);
     }
-    for (const btn of [uiRefs.exportBtn, railExportBtn]) {
-      if (!btn) continue;
-      btn.setAttribute('data-exported', 'true');
-      setTimeout(() => btn.removeAttribute('data-exported'), 1600);
+    if (uiRefs.exportBtn) {
+      uiRefs.exportBtn.setAttribute('data-exported', 'true');
+      setTimeout(() => uiRefs.exportBtn?.removeAttribute('data-exported'), 1600);
     }
     return { filename, markdown: md };
+  }
+
+  function closeActiveMenuOverlay() {
+    const backdrop = document.querySelector?.('.cdk-overlay-backdrop');
+    if (backdrop?.click) {
+      backdrop.click();
+      return;
+    }
+    if (typeof KeyboardEvent === 'function') {
+      document.dispatchEvent?.(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    }
+  }
+
+  function isTopRightConversationMenu(menuEl) {
+    if (!menuEl) return false;
+    const items = Array.from(menuEl.querySelectorAll?.('button, [role="menuitem"], a') || []);
+    if (items.length === 0) return false;
+    const labels = items.map((el) => (el.textContent || '').trim());
+    const hasExportOrPdf = labels.some((t) => /download\s*pdf|export\s*to\s*docs|下载\s*pdf|导出到/i.test(t));
+    if (hasExportOrPdf) return true;
+
+    const hasChatActions =
+      labels.some((t) => /pin|置顶|固定/i.test(t)) &&
+      labels.some((t) => /delete|删除/i.test(t));
+    if (!hasChatActions) return false;
+
+    if (menuEl.getBoundingClientRect) {
+      const r = menuEl.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        return r.top <= 240 && r.left >= (window.innerWidth || 1200) * 0.5;
+      }
+    }
+    return false;
+  }
+
+  function syncMenuExportItem() {
+    if (!extractConversationKey()) return;
+    const menus = Array.from(
+      document.querySelectorAll?.('[role="menu"], .mat-mdc-menu-panel, .mat-menu-panel') || []
+    );
+    for (const menu of menus) {
+      const container = menu.querySelector?.('.mat-mdc-menu-content, .mat-menu-content') || menu;
+      if (container.querySelector?.('#gxu-menu-export-md')) continue;
+      if (!isTopRightConversationMenu(menu)) continue;
+
+      const icon = svg(
+        'svg',
+        {
+          viewBox: '0 0 24 24',
+          width: '18',
+          height: '18',
+          fill: 'none',
+          stroke: 'currentColor',
+          'stroke-width': '1.9',
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+        },
+        [
+          svg('path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }),
+          svg('polyline', { points: '7 10 12 15 17 10' }),
+          svg('line', { x1: '12', y1: '15', x2: '12', y2: '3' }),
+        ]
+      );
+
+      const itemBtn = h(
+        'button',
+        {
+          type: 'button',
+          role: 'menuitem',
+          className: 'mat-mdc-menu-item mat-focus-indicator gxu-menu-export-item',
+          id: 'gxu-menu-export-md',
+        },
+        [icon, h('span', { className: 'mat-mdc-menu-item-text', textContent: 'Export Markdown' })]
+      );
+
+      itemBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        exportConversationMarkdown();
+        closeActiveMenuOverlay();
+      });
+
+      const existingItems = Array.from(container.children || []);
+      const deleteItem = existingItems.find((el) => /delete|删除/i.test((el.textContent || '').trim()));
+      const exportDocsItem = existingItems.find((el) => /export\s*to\s*docs|导出到/i.test((el.textContent || '').trim()));
+      if (exportDocsItem && exportDocsItem.nextElementSibling) {
+        container.insertBefore(itemBtn, exportDocsItem.nextElementSibling);
+      } else if (deleteItem) {
+        container.insertBefore(itemBtn, deleteItem);
+      } else {
+        container.appendChild(itemBtn);
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -2321,6 +2381,7 @@
       node === popoverEl ||
       node === railEl ||
       node === cardEl ||
+      node.id === 'gxu-menu-export-md' ||
       node.id === STYLE_ID
     ) {
       return true;
@@ -2365,6 +2426,7 @@
       syncTheme();
       mountQuotaWidget();
       syncTimeline();
+      syncMenuExportItem();
       checkGenerationTransition();
       if (popoverOpen) positionPopover();
 
@@ -2395,6 +2457,7 @@
 
     const observer = new MutationObserver((mutations) => {
       if (!hasExternalMutation(mutations)) return;
+      syncMenuExportItem();
       scheduleUISync();
     });
     observer.observe(document.documentElement, {
@@ -2459,6 +2522,7 @@
       collectConversationMessages,
       buildConversationMarkdown,
       exportConversationMarkdown,
+      syncMenuExportItem,
     });
   }
 
