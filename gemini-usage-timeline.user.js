@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini Usage & Timeline
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      1.2.1
+// @version      1.2.2
 // @description  Show 5-hour and weekly usage quotas beside the Gemini Web sidebar profile, plus a Codex-style right-side turn timeline.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
@@ -882,13 +882,13 @@
         animation: gxu-turn-pulse 1.2s ease-out;
       }
 
-      .gxu-menu-export-item {
+      .gxu-menu-export-item--fallback {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 16px;
         width: 100%;
-        min-height: 40px;
-        padding: 0 16px;
+        min-height: 48px;
+        padding: 0 12px;
         border: none;
         background: transparent;
         color: var(--gxu-text-primary);
@@ -901,13 +901,8 @@
         box-sizing: border-box;
       }
 
-      .gxu-menu-export-item:hover {
+      .gxu-menu-export-item--fallback:hover {
         background: var(--gxu-surface-hover);
-      }
-
-      .gxu-menu-export-item svg {
-        flex: 0 0 auto;
-        color: var(--gxu-text-secondary);
       }
 
       .gxu-icon-btn[data-exported="true"] {
@@ -2305,35 +2300,64 @@
       if (container.querySelector?.('#gxu-menu-export-md')) continue;
       if (!isTopRightConversationMenu(menu)) continue;
 
-      const icon = svg(
-        'svg',
-        {
-          viewBox: '0 0 24 24',
-          width: '18',
-          height: '18',
-          fill: 'none',
-          stroke: 'currentColor',
-          'stroke-width': '1.9',
-          'stroke-linecap': 'round',
-          'stroke-linejoin': 'round',
-        },
-        [
-          svg('path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }),
-          svg('polyline', { points: '7 10 12 15 17 10' }),
-          svg('line', { x1: '12', y1: '15', x2: '12', y2: '3' }),
-        ]
-      );
+      const existingItems = Array.from(container.children || []);
+      const downloadPdfItem = existingItems.find((el) => /download\s*pdf|下载\s*pdf/i.test((el.textContent || '').trim()));
+      const exportDocsItem = existingItems.find((el) => /export\s*to\s*docs|导出到/i.test((el.textContent || '').trim()));
+      const templateItem = downloadPdfItem || exportDocsItem || existingItems[0];
 
-      const itemBtn = h(
-        'button',
-        {
-          type: 'button',
-          role: 'menuitem',
-          className: 'mat-mdc-menu-item mat-focus-indicator gxu-menu-export-item',
-          id: 'gxu-menu-export-md',
-        },
-        [icon, h('span', { className: 'mat-mdc-menu-item-text', textContent: 'Export Markdown' })]
-      );
+      let itemBtn;
+      if (templateItem && typeof templateItem.cloneNode === 'function') {
+        itemBtn = templateItem.cloneNode(true);
+        itemBtn.id = 'gxu-menu-export-md';
+        itemBtn.removeAttribute?.('data-test-id');
+        itemBtn.removeAttribute?.('jslog');
+        itemBtn.removeAttribute?.('aria-describedby');
+        const labelEl = itemBtn.querySelector?.('.mat-mdc-menu-item-text, .mdc-list-item__primary-text');
+        if (labelEl) {
+          labelEl.textContent = 'Export Markdown';
+        } else {
+          const walker = typeof document.createTreeWalker === 'function' ? document.createTreeWalker(itemBtn, 4) : null;
+          let replaced = false;
+          while (walker?.nextNode?.()) {
+            const n = walker.currentNode;
+            if (!n.parentElement?.closest?.('mat-icon') && (n.textContent || '').trim()) {
+              n.textContent = 'Export Markdown';
+              replaced = true;
+              break;
+            }
+          }
+          if (!replaced) itemBtn.textContent = 'Export Markdown';
+        }
+      } else {
+        const icon = svg(
+          'svg',
+          {
+            viewBox: '0 0 24 24',
+            width: '20',
+            height: '20',
+            fill: 'none',
+            stroke: 'currentColor',
+            'stroke-width': '1.5',
+            'stroke-linecap': 'round',
+            'stroke-linejoin': 'round',
+          },
+          [
+            svg('path', { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' }),
+            svg('polyline', { points: '7 10 12 15 17 10' }),
+            svg('line', { x1: '12', y1: '15', x2: '12', y2: '3' }),
+          ]
+        );
+        itemBtn = h(
+          'button',
+          {
+            type: 'button',
+            role: 'menuitem',
+            className: 'mat-mdc-menu-item mat-focus-indicator gxu-menu-export-item--fallback',
+            id: 'gxu-menu-export-md',
+          },
+          [icon, h('span', { className: 'mat-mdc-menu-item-text', textContent: 'Export Markdown' })]
+        );
+      }
 
       itemBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -2341,9 +2365,7 @@
         closeActiveMenuOverlay();
       });
 
-      const existingItems = Array.from(container.children || []);
       const deleteItem = existingItems.find((el) => /delete|删除/i.test((el.textContent || '').trim()));
-      const exportDocsItem = existingItems.find((el) => /export\s*to\s*docs|导出到/i.test((el.textContent || '').trim()));
       if (exportDocsItem && exportDocsItem.nextElementSibling) {
         container.insertBefore(itemBtn, exportDocsItem.nextElementSibling);
       } else if (deleteItem) {
