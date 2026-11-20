@@ -387,9 +387,9 @@ function createMiniDOM({
   return { hookApi, document, footerRow, profileBlock, gearBtn, scroller, storage, sidenav };
 }
 
-test('v1.2.2 uses English UI labels, matches metadata, disables child pointer-events, and avoids innerHTML', () => {
-  assert.match(scriptSource, /@version\s+1\.2\.2/);
-  assert.match(metaSource, /@version\s+1\.2\.2/);
+test('v1.2.3 uses English UI labels, matches metadata, disables child pointer-events, and avoids innerHTML', () => {
+  assert.match(scriptSource, /@version\s+1\.2\.3/);
+  assert.match(metaSource, /@version\s+1\.2\.3/);
   assert.doesNotMatch(scriptSource, /\.innerHTML\s*=/);
   assert.doesNotMatch(scriptSource, /Gemini 用量限额|5 小时限额|周限额|后重置/, 'UI labels must be English');
   assert.match(scriptSource, /\.gxu-avatar-quota\s+\*\s*\{[\s\S]*?pointer-events:\s*none;/);
