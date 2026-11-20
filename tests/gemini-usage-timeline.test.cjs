@@ -387,9 +387,9 @@ function createMiniDOM({
   return { hookApi, document, footerRow, profileBlock, gearBtn, scroller, storage, sidenav };
 }
 
-test('v1.2.0 uses English UI labels, matches metadata, disables child pointer-events, and avoids innerHTML', () => {
-  assert.match(scriptSource, /@version\s+1\.2\.0/);
-  assert.match(metaSource, /@version\s+1\.2\.0/);
+test('v1.2.1 uses English UI labels, matches metadata, disables child pointer-events, and avoids innerHTML', () => {
+  assert.match(scriptSource, /@version\s+1\.2\.1/);
+  assert.match(metaSource, /@version\s+1\.2\.1/);
   assert.doesNotMatch(scriptSource, /\.innerHTML\s*=/);
   assert.doesNotMatch(scriptSource, /Gemini 用量限额|5 小时限额|周限额|后重置/, 'UI labels must be English');
   assert.match(scriptSource, /\.gxu-avatar-quota\s+\*\s*\{[\s\S]*?pointer-events:\s*none;/);
@@ -576,5 +576,43 @@ test('exports conversation as Markdown with user and assistant messages while ex
   assert.doesNotMatch(md, /Internal thinking should be excluded/);
   assert.doesNotMatch(md, /secret_cmd/);
   assert.ok(env.document.getElementById('gxu-export-btn'), 'export button present in quota popover');
-  assert.ok(env.document.getElementById('gxu-timeline-export'), 'export button present in timeline rail');
+  assert.equal(env.document.getElementById('gxu-timeline-export'), null, 'export button moved out of timeline rail into top-right menu');
+});
+
+test('injects Export Markdown into top-right conversation menu without polluting left sidebar menus', () => {
+  const env = createMiniDOM({
+    turns: [{ id: 'q1', top: 120, lines: ['Hello Gemini'] }],
+  });
+
+  // Left sidebar menu (should NOT get Export Markdown)
+  const sidebarMenu = env.document.createElement('div');
+  sidebarMenu.setAttribute('role', 'menu');
+  sidebarMenu._rect = { left: 120, top: 400, right: 280, bottom: 520, width: 160, height: 120 };
+  for (const label of ['Pin', 'Rename', 'Delete']) {
+    const b = env.document.createElement('button');
+    b.setAttribute('role', 'menuitem');
+    b.textContent = label;
+    sidebarMenu.appendChild(b);
+  }
+  env.document.body.appendChild(sidebarMenu);
+
+  // Top-right conversation menu (should get Export Markdown before Delete)
+  const topRightMenu = env.document.createElement('div');
+  topRightMenu.setAttribute('role', 'menu');
+  topRightMenu._rect = { left: 1220, top: 80, right: 1410, bottom: 290, width: 190, height: 210 };
+  for (const label of ['Pin', 'Rename', 'Download PDF', 'Export to Docs', 'Delete']) {
+    const b = env.document.createElement('button');
+    b.setAttribute('role', 'menuitem');
+    b.textContent = label;
+    topRightMenu.appendChild(b);
+  }
+  env.document.body.appendChild(topRightMenu);
+
+  env.hookApi.syncMenuExportItem();
+
+  assert.equal(sidebarMenu.querySelector('#gxu-menu-export-md'), null, 'sidebar menu untouched');
+  const injected = topRightMenu.querySelector('#gxu-menu-export-md');
+  assert.ok(injected, 'Export Markdown injected into top-right menu');
+  const labels = topRightMenu.children.map((c) => c.textContent);
+  assert.deepEqual(labels, ['Pin', 'Rename', 'Download PDF', 'Export to Docs', 'Export Markdown', 'Delete']);
 });
