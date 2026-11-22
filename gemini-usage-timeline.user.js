@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Gemini Usage & Timeline
 // @namespace    https://github.com/nonlog/my_scripts
-// @version      1.2.4
+// @version      1.2.5
 // @description  Show 5-hour and weekly usage quotas beside the Gemini Web sidebar profile, plus a Codex-style right-side turn timeline.
 // @homepage     https://github.com/nonlog/my_scripts
 // @supportURL   https://github.com/nonlog/my_scripts/issues
@@ -75,6 +75,8 @@
   const STYLE_ID = 'gxu-usage-timeline-style';
 
   const USER_TURN_SELECTOR = 'user-query, .user-query-container, [data-message-author-role="user"]';
+  const USER_ATTACHMENT_SELECTOR =
+    'user-query-file-carousel, user-query-file-preview, .query-file-preview, .preview-image-button, img, video, audio, canvas, [data-test-id*="file-preview"], [data-test-id*="attachment"]';
   const MODEL_RESPONSE_SELECTOR = 'model-response, .model-response, response-container, [data-message-author-role="model"]';
   const EXCLUDED_RESPONSE_SELECTOR = [
     'model-thoughts',
@@ -1799,11 +1801,22 @@
     return r.width > 0 || r.height > 0;
   }
 
+  function hasUserAttachment(turnEl) {
+    if (!turnEl?.querySelector) return false;
+    return Boolean(turnEl.querySelector(USER_ATTACHMENT_SELECTOR));
+  }
+
+  function hasMeaningfulUserTurn(turnEl) {
+    const prompt = extractTurnPrompt(turnEl);
+    if (prompt.raw) return true;
+    return hasUserAttachment(turnEl);
+  }
+
   function collectDeduplicatedUserTurns() {
     const candidates = Array.from(document.querySelectorAll(USER_TURN_SELECTOR)).filter(isTurnVisible);
     if (candidates.length === 0) return [];
     return candidates.filter(
-      (el) => !candidates.some((other) => other !== el && other.contains(el))
+      (el) => !candidates.some((other) => other !== el && other.contains(el)) && hasMeaningfulUserTurn(el)
     );
   }
 
